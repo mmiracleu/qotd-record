@@ -22,32 +22,29 @@ function Log($m) {
 # stdout+stderr are captured via temp files. Returns exit code + combined text.
 function Invoke-Git {
     param([string[]]$GitArgs)
-    $o = [System.IO.Path]::GetTempFileName()
-    $e = [System.IO.Path]::GetTempFileName()
-    $p = Start-Process -FilePath "git" -ArgumentList (@('-C', $repo) + $GitArgs) `
-        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
-    $txt = ((Get-Content -LiteralPath $o -Raw -ErrorAction SilentlyContinue) +
-            (Get-Content -LiteralPath $e -Raw -ErrorAction SilentlyContinue))
-    Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue
-    [pscustomobject]@{ Code = $p.ExitCode; Out = ($txt | Out-String).TrimEnd() }
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'   # git writes normal progress to stderr
+    $out = & git -C $repo @GitArgs 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $old
+    if ($null -eq $code) { $code = 0 }
+    [pscustomobject]@{ Code = $code; Out = "$out".TrimEnd() }
 }
 
 try {
     if (-not (Test-Path -LiteralPath $src)) { Log "SKIP: record.html not found at $src"; exit 0 }
 
-    $srcHash = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash
-    $dstHash = if (Test-Path -LiteralPath $dst) { (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash } else { "" }
-    if ($srcHash -eq $dstHash) { exit 0 }   # no change -> quiet exit
-
+    # keep index.html in sync with the edited source file
     Copy-Item -LiteralPath $src -Destination $dst -Force
 
+    # commit+push if anything in the repo is uncommitted (index.html or the script itself)
     Invoke-Git @('add','-A') | Out-Null
-    if ((Invoke-Git @('diff','--cached','--quiet')).Code -eq 0) { Log "SKIP: nothing staged"; exit 0 }
+    if ((Invoke-Git @('diff','--cached','--quiet')).Code -eq 0) { exit 0 }   # nothing to do -> quiet exit
 
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
     Log "change detected -> commit/push"
 
-    $c = Invoke-Git @('commit','-m',"auto: sync record.html ($stamp)")
+    $c = Invoke-Git @('commit','-m',"auto-deploy ($stamp)")
     Log $c.Out
     if ($c.Code -ne 0) { Log "ERROR: commit failed (code $($c.Code))"; exit 1 }
 

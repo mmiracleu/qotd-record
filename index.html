@@ -83,6 +83,14 @@
   }
   .submit-btn:disabled { opacity: 0.5; }
 
+  .retry-btn {
+    width: 100%; padding: 12px; border-radius: 14px;
+    border: 2px solid var(--miracle-blue); background: #fff;
+    color: var(--miracle-blue-deep); font-size: 15px; font-weight: 700;
+    cursor: pointer; display: none; margin-top: 8px;
+  }
+  .retry-btn:active { transform: scale(0.98); }
+
   .status { text-align: center; margin-top: 16px; font-size: 14px; min-height: 20px; }
   .status.ok { color: #27AE60; font-weight: 700; }
   .status.err { color: var(--red); font-weight: 700; }
@@ -116,6 +124,7 @@
     <div class="timer" id="timer">00:00</div>
     <audio id="player" controls></audio>
     <button class="submit-btn" id="submitBtn" onclick="submitRecording()">이 녹음 제출하기</button>
+    <button class="retry-btn" id="retryBtn" onclick="retryRecord()">🎙️ 다시 녹음하기</button>
     <div class="status" id="status"></div>
   </div>
 
@@ -197,6 +206,7 @@ function selectTab(cat) {
 function resetRecorder() {
   document.getElementById('player').style.display = 'none';
   document.getElementById('submitBtn').style.display = 'none';
+  document.getElementById('retryBtn').style.display = 'none';
   document.getElementById('status').textContent = '';
   document.getElementById('status').className = 'status';
   document.getElementById('timer').textContent = '00:00';
@@ -241,6 +251,7 @@ async function toggleRecord() {
           document.getElementById('status').className = 'status err';
         };
         document.getElementById('submitBtn').style.display = 'block';
+        document.getElementById('retryBtn').style.display = 'block';
         stream.getTracks().forEach(t => t.stop());
       };
       mediaRecorder.start(1000);
@@ -264,6 +275,13 @@ async function toggleRecord() {
     btn.classList.remove('recording');
     document.getElementById('recHint').textContent = '녹음 완료! 아래에서 들어보고 제출하세요';
   }
+}
+
+function retryRecord() {
+  // 이전 녹음 지우고 곧바로 새 녹음 시작
+  resetRecorder();
+  document.getElementById('recHint').textContent = '버튼을 눌러 녹음을 시작하세요';
+  toggleRecord();
 }
 
 function updateTimer() {
@@ -312,9 +330,10 @@ async function submitRecording() {
     });
     const result = await res.json();
     if (result.success) {
-      statusEl.textContent = '✅ 제출 완료! 수고했어요 👏';
+      statusEl.textContent = '제출 완료! 넌 역시 미라클 👍';
       statusEl.className = 'status ok';
       submitBtn.style.display = 'none';
+      document.getElementById('retryBtn').style.display = 'none';
     } else {
       throw new Error(result.error || '알 수 없는 오류');
     }
