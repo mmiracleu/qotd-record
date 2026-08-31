@@ -227,12 +227,18 @@ async function toggleRecord() {
         // 재생 막대가 안 움직이고 소리가 안 나는 문제를 우회한다.
         player.onloadedmetadata = () => {
           if (!isFinite(player.duration)) {
-            player.currentTime = 1e101;
-            player.ontimeupdate = () => {
-              player.ontimeupdate = null;
-              player.currentTime = 0;
-            };
+            try {
+              player.currentTime = 1e101;
+              player.ontimeupdate = () => {
+                player.ontimeupdate = null;
+                if (isFinite(player.duration)) player.currentTime = 0;
+              };
+            } catch (e) { /* iOS 등 일부 환경은 seek 불가 — 재생은 그대로 가능 */ }
           }
+        };
+        player.onerror = () => {
+          document.getElementById('status').textContent = '재생 오류가 났어요. 녹음은 저장됐으니 그대로 제출해도 됩니다. (' + (player.error && player.error.code) + ')';
+          document.getElementById('status').className = 'status err';
         };
         document.getElementById('submitBtn').style.display = 'block';
         stream.getTracks().forEach(t => t.stop());
