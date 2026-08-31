@@ -213,19 +213,77 @@ function resetRecorder() {
   audioBlob = null;
 }
 
+function setStatus(msg, kind) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
 async function toggleRecord() {
   const btn = document.getElementById('recBtn');
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-    // 시작
-    const name = document.getElementById('studentName').value.trim();
-    if (!name) { alert('이름을 먼저 입력해주세요!'); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  // ----- 녹음 중지 -----
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    clearInterval(timerInterval);
+    btn.classList.remove('recording');
+    document.getElementById('recHint').textContent = '녹음 완료! 아래에서 들어보고 제출하세요';
+    return;
+  }
+
+  // ----- 녹음 시작 -----
+  const name = document.getElementById('studentName').value.trim();
+  if (!name) {
+    setStatus('먼저 이름을 입력해주세요.', 'err');
+    document.getElementById('studentName').focus();
+    return;
+  }
+
+  // 환경 점검 (아무 반응 없이 멈추는 것 방지)
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('이 브라우저에서는 녹음을 쓸 수 없어요. 크롬 최신 버전에서 https 주소로 열어주세요.', 'err');
+    return;
+  }
+  if (typeof MediaRecorder === 'undefined') {
+    setStatus('이 브라우저가 녹음(MediaRecorder)을 지원하지 않아요. 크롬을 최신으로 업데이트해주세요.', 'err');
+    return;
+  }
+
+  resetRecorder();
+  btn.disabled = true;
+  setStatus('마이크 사용을 "허용"해 주세요. (창 위쪽 주소창 근처에 작은 허용 창이 떠요)', 'busy');
+  // 허용 창을 못 보고 멈춰있는 경우를 위한 안내
+  const permHint = setTimeout(() => {
+    setStatus('허용 창이 안 보이면: 주소창 왼쪽 자물쇠(🔒) 아이콘 → 마이크 → "허용" 으로 바꾸고 새로고침 해주세요.', 'busy');
+  }, 7000);
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    clearTimeout(permHint);
+    btn.disabled = false;
+    let msg;
+    if (err.name === 'NotAllowedError' || err.name === 'SecurityError')
+      msg = '마이크 권한이 막혀 있어요. 주소창 왼쪽 자물쇠(🔒) → 마이크 → "허용" → 새로고침 해주세요.';
+    else if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError')
+      msg = '마이크를 찾지 못했어요. 헤드셋이 Windows 기본 입력 장치인지 확인해주세요. (설정 → 시스템 → 소리 → 입력에서 헤드셋 선택)';
+    else if (err.name === 'NotReadableError' || err.name === 'AbortError')
+      msg = '다른 프로그램이 마이크를 쓰고 있어요. 줌·화상영어·팀즈 등을 끄고 다시 눌러주세요.';
+    else
+      msg = '마이크 오류: ' + err.name + ' — ' + err.message;
+    setStatus(msg, 'err');
+    return;
+  }
+  clearTimeout(permHint);
+  btn.disabled = false;
+
+  try {
       chunks = [];
       const options = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : {};
       mediaRecorder = new MediaRecorder(stream, options);
-      mimeTypeUsed = mediaRecorder.mimeType || 'audio/webm';
-      mediaRecorder.ondataavailable = e => chunks.push(e.data);
+      mimeTypeUsed = mediaRecorder.mimeType || options.mimeType || 'audio/webm';
+      mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
       mediaRecorder.onstop = () => {
         audioBlob = new Blob(chunks, { type: mimeTypeUsed });
         const url = URL.createObjectURL(audioBlob);
@@ -256,24 +314,14 @@ async function toggleRecord() {
       };
       mediaRecorder.start(1000);
       startTime = Date.now();
+      document.getElementById('timer').textContent = '00:00';
       timerInterval = setInterval(updateTimer, 200);
       btn.classList.add('recording');
       document.getElementById('recHint').textContent = '녹음 중입니다... 다시 누르면 멈춰요';
-      resetRecorder();
-    } catch (err) {
-      let msg = '마이크 오류: ' + err.name;
-      if (err.name === 'NotAllowedError') msg = '마이크 권한이 거부되어 있어요. 주소창 왼쪽 자물쇠 아이콘을 눌러 마이크를 "허용"으로 바꾸고 새로고침 해주세요.';
-      else if (err.name === 'NotFoundError') msg = '마이크 장치를 찾을 수 없어요. 마이크가 연결되어 있는지 확인해주세요.';
-      else if (err.name === 'NotReadableError') msg = '다른 프로그램이 마이크를 쓰고 있어서 접근할 수 없어요. 다른 프로그램(줌, 화상영어 등)을 종료하고 다시 시도해주세요.';
-      else if (err.name === 'SecurityError') msg = '보안 설정 때문에 막혔어요. GitHub Pages에 올린 뒤 https 주소로 열면 해결됩니다.';
-      document.getElementById('status').textContent = msg + ' [' + err.name + ': ' + err.message + ']';
-      document.getElementById('status').className = 'status err';
-    }
-  } else {
-    mediaRecorder.stop();
-    clearInterval(timerInterval);
-    btn.classList.remove('recording');
-    document.getElementById('recHint').textContent = '녹음 완료! 아래에서 들어보고 제출하세요';
+      setStatus('', '');
+  } catch (err) {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    setStatus('녹음 시작에 실패했어요: ' + err.name + ' — ' + err.message, 'err');
   }
 }
 
