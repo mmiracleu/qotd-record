@@ -222,10 +222,22 @@ async function toggleRecord() {
         const player = document.getElementById('player');
         player.src = url;
         player.style.display = 'block';
+        player.load();
+        // Chrome·모바일: MediaRecorder 파일에 길이 정보가 빠져 있어
+        // 재생 막대가 안 움직이고 소리가 안 나는 문제를 우회한다.
+        player.onloadedmetadata = () => {
+          if (!isFinite(player.duration)) {
+            player.currentTime = 1e101;
+            player.ontimeupdate = () => {
+              player.ontimeupdate = null;
+              player.currentTime = 0;
+            };
+          }
+        };
         document.getElementById('submitBtn').style.display = 'block';
         stream.getTracks().forEach(t => t.stop());
       };
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
       startTime = Date.now();
       timerInterval = setInterval(updateTimer, 200);
       btn.classList.add('recording');
