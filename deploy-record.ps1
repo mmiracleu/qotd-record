@@ -17,16 +17,19 @@ function Log($m) {
         Out-File -LiteralPath $log -Append -Encoding utf8
 }
 
-# Run git without letting its stderr (which git uses for normal progress output)
-# trip $ErrorActionPreference='Stop'. Returns exit code + combined output text.
+# Run git without letting its stderr (git uses stderr for normal progress output)
+# trip $ErrorActionPreference='Stop' or pollute the log with NativeCommandError noise.
+# stdout+stderr are captured via temp files. Returns exit code + combined text.
 function Invoke-Git {
     param([string[]]$GitArgs)
-    $old = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    $out = & git -C $repo @GitArgs 2>&1 | Out-String
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = $old
-    [pscustomobject]@{ Code = $code; Out = $out.TrimEnd() }
+    $o = [System.IO.Path]::GetTempFileName()
+    $e = [System.IO.Path]::GetTempFileName()
+    $p = Start-Process -FilePath "git" -ArgumentList (@('-C', $repo) + $GitArgs) `
+        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
+    $txt = ((Get-Content -LiteralPath $o -Raw -ErrorAction SilentlyContinue) +
+            (Get-Content -LiteralPath $e -Raw -ErrorAction SilentlyContinue))
+    Remove-Item -LiteralPath $o, $e -Force -ErrorAction SilentlyContinue
+    [pscustomobject]@{ Code = $p.ExitCode; Out = ($txt | Out-String).TrimEnd() }
 }
 
 try {
