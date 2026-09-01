@@ -360,9 +360,12 @@ async function toggleRecord() {
       document.getElementById('timer').textContent = '00:00';
       timerInterval = setInterval(updateTimer, 200);
       clearTimeout(maxTimer);
-      maxTimer = setTimeout(() => {   // 75초 넘으면 자동 정지 (파일이 너무 커지는 것 방지)
-        if (mediaRecorder && mediaRecorder.state === 'recording') toggleRecord();
-      }, 75000);
+      maxTimer = setTimeout(() => {   // 15분 넘으면 자동 정지 (실수로 켜둔 채 방치되는 것만 방지)
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          toggleRecord();
+          setStatus('15분이 넘어 자동으로 멈췄어요. 아래에서 확인하고 제출하세요.', 'busy');
+        }
+      }, 15 * 60 * 1000);
       btn.classList.add('recording');
       document.getElementById('recHint').textContent = '녹음 중입니다... 다시 누르면 멈춰요';
       setStatus('', '');
@@ -384,6 +387,9 @@ function updateTimer() {
   const m = String(Math.floor(sec / 60)).padStart(2, '0');
   const s = String(sec % 60).padStart(2, '0');
   document.getElementById('timer').textContent = m + ':' + s;
+  if (sec >= 60 && sec % 60 === 0) {   // 1분 넘어가면 계속 녹음 중임을 알려줌 (책읽기 등 긴 녹음)
+    document.getElementById('recHint').textContent = Math.floor(sec / 60) + '분째 녹음 중… 다 하면 버튼을 눌러 멈추세요';
+  }
 }
 
 function blobToBase64(blob) {
@@ -400,7 +406,7 @@ async function sendPayload(bodyStr, tries) {
   for (let i = 0; i < tries; i++) {
     try {
       const ctl = new AbortController();
-      const to = setTimeout(() => ctl.abort(), 45000);
+      const to = setTimeout(() => ctl.abort(), 90000);   // 긴 녹음(5분+) 업로드 여유
       let res;
       try {
         res = await fetch(WEBAPP_URL, {
