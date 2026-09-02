@@ -127,8 +127,8 @@
     <div class="qshort" id="qshort"></div>
   </div>
 
-  <label>이름을 입력하세요 (성까지 전체 이름)</label>
-  <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off">
+  <label>이름 (3글자 · 성 붙여서)</label>
+  <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off" maxlength="3" inputmode="text">
 
   <div class="recorder">
     <div class="hint" id="recHint">버튼을 눌러 녹음을 시작하세요</div>
@@ -234,7 +234,7 @@ function selectTab(cat) {
   resetRecorder();
   document.getElementById('recHint').textContent = (cat === 'QOTD')
     ? '질문에 30초~1분 정도로 답해보세요. 버튼을 눌러 시작!'
-    : '버튼을 눌러 녹음을 시작하세요';
+    : '책 한 권에 녹음 하나씩 올려주세요. 버튼을 눌러 시작!';
 }
 
 function resetRecorder() {
