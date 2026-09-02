@@ -324,7 +324,7 @@ async function toggleRecord() {
       for (let i = 0; i < prefTypes.length; i++) {
         if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(prefTypes[i])) { picked = prefTypes[i]; break; }
       }
-      const options = { audioBitsPerSecond: 32000 };
+      const options = { audioBitsPerSecond: 48000 };   // 음성 또렷 + 전사 정확도 ↑, 5분 ≈ 1.8MB (전송 안정)
       if (picked) options.mimeType = picked;
       try { mediaRecorder = new MediaRecorder(stream, options); }
       catch (e) { mediaRecorder = new MediaRecorder(stream); }
