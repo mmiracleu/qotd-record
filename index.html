@@ -127,9 +127,8 @@
     <div class="qshort" id="qshort"></div>
   </div>
 
-  <label>이름을 고르세요 (성까지 전체 이름)</label>
-  <input type="text" id="studentName" list="rosterList" placeholder="이름 입력하면 목록이 떠요" autocomplete="off">
-  <datalist id="rosterList"></datalist>
+  <label>이름을 입력하세요 (성까지 전체 이름)</label>
+  <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off">
 
   <div class="recorder">
     <div class="hint" id="recHint">버튼을 눌러 녹음을 시작하세요</div>
@@ -147,21 +146,6 @@
 <script>
 const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbySiS2XArBdM-2H8ubl8PgZAI5GnoeNvwu8wr5ymGi_UMEx4Yj6eONPsD_64Zhl-x6GPQ/exec';
 
-// 학생 명단 (오타 방지용 자동완성). 학생이 바뀌면 여기 + 리포트 스크립트 둘 다 수정.
-const ROSTER = [
-  "문창훈","손수민","오태윤","이아린","조하영",
-  "강예서","김가민","도건영","박서후","손하은","윤하린","최가윤",
-  "김려원","권호진","김다솜","김라윤","김리우","박유준","박태준","조현우","한승오",
-  "김담희","김세준","김수연","김제아","박서영","이서우","하성윤","황시헌",
-  "김여원","성유리","성윤재","손유정","이예린","이하윤",
-  "김나희","김도윤","김태영","손하람","신설아","한채원",
-  "김세윤","안아린","하윤지","한유준",
-  "김민경","김민지","김다온"
-];
-(function () {
-  const dl = document.getElementById('rosterList');
-  if (dl) ROSTER.forEach(function (n) { const o = document.createElement('option'); o.value = n; dl.appendChild(o); });
-})();
 
 // About Me 30 — 첫 30일 자기소개 문답. ex = 이렇게 답해요(확장), short = 짧은 버전
 const QOTD = [
@@ -453,16 +437,10 @@ async function sendPayload(bodyStr, tries) {
   return { ok: false, error: '네트워크가 불안정한 것 같아요.' };
 }
 
-let _confirmedName = '';
 async function submitRecording() {
   if (!audioBlob && !lastPayload) return;
   const name = document.getElementById('studentName').value.trim();
-  if (!name) { setStatus('먼저 이름을 골라주세요.', 'err'); document.getElementById('studentName').focus(); return; }
-  if (ROSTER.indexOf(name) === -1 && _confirmedName !== name) {
-    _confirmedName = name;   // 다음 클릭엔 그대로 진행 (오타 아니라고 확인한 것)
-    setStatus('"' + name + '" 은 명단에 없는 이름이에요. 목록에서 본인 이름을 골라주세요. (오타가 아니면 제출을 한 번 더 누르세요)', 'err');
-    return;
-  }
+  if (!name) { setStatus('먼저 이름을 입력해주세요.', 'err'); document.getElementById('studentName').focus(); return; }
 
   const submitBtn = document.getElementById('submitBtn');
   const retryBtn = document.getElementById('retryBtn');
