@@ -64,6 +64,28 @@
   }
   .qbox .qshort { margin-top: 8px; font-size: 12px; color: #9a8664; }
   .qbox .qshort b { display: block; }
+  .qbox .qback {
+    display: none; margin-top: 12px; font-size: 12px; font-weight: 700;
+    color: #5DADE2; cursor: pointer;
+  }
+  .qbox.past .qback { display: block; }
+
+  .pastwrap { margin: -6px 0 18px; }
+  .pasthead {
+    font-size: 12px; font-weight: 700; color: #7f8c9a; cursor: pointer;
+    padding: 8px 2px; user-select: none;
+  }
+  .pasthead #pastcaret { display: inline-block; width: 12px; }
+  .pastlist { display: none; }
+  .pastlist.open { display: block; }
+  .pastrow {
+    padding: 10px 12px; margin-bottom: 6px; border-radius: 10px;
+    background: #F4F8FC; border: 1px solid #E3EDF3; cursor: pointer;
+  }
+  .pastrow:active { background: #E8F1F9; }
+  .pastrow .d { font-size: 11px; font-weight: 700; color: #B8860B; }
+  .pastrow .qe { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 2px; }
+  .pastrow .qk { font-size: 11px; color: #9aa7b2; margin-top: 1px; }
 
   label { display: block; font-size: 13px; color: #7f8c9a; margin-bottom: 6px; font-weight: 600; }
   input[type=text] {
@@ -125,10 +147,16 @@
     <div class="qkr" id="qkr"></div>
     <div class="qex" id="qex"></div>
     <div class="qshort" id="qshort"></div>
+    <div class="qback" id="qback" onclick="showQuestion(getTodayIndex(), false)">↩ 오늘 질문으로 돌아가기</div>
   </div>
 
-  <label>이름 (3글자 · 성 붙여서)</label>
-  <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off" maxlength="3" inputmode="text">
+  <div class="pastwrap" id="pastwrap">
+    <div class="pasthead" id="pasthead" onclick="togglePast()"><span id="pastcaret">▸</span> 지난 질문 — 아직 안 했으면 지금 해도 돼요</div>
+    <div class="pastlist" id="pastlist"></div>
+  </div>
+
+  <label>이름 (한글은 3글자 · 성 붙여서 / 영어 이름은 그대로)</label>
+  <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off" inputmode="text">
 
   <div class="recorder">
     <div class="hint" id="recHint">버튼을 눌러 녹음을 시작하세요</div>
@@ -183,15 +211,98 @@ const QOTD = [
 const START_DATE = new Date(2026, 8, 1);
 
 let currentCategory = '책읽기';
+let currentQIndex = null;   // 지금 화면에 띄운 질문의 번호(0부터). 책읽기면 null
 let mediaRecorder, chunks = [], startTime, timerInterval, maxTimer, audioBlob, mimeTypeUsed;
 let lastPayload = null;   // 전송 실패 시 재전송용
 
-function getTodayQuestion() {
+function getTodayIndex() {
   const today = new Date();
   const s = new Date(START_DATE.getFullYear(), START_DATE.getMonth(), START_DATE.getDate());
   const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const idx = Math.round((t - s) / 86400000);
-  return (idx >= 0 && idx < QOTD.length) ? QOTD[idx] : null;
+  return Math.round((t - s) / 86400000);
+}
+function getTodayQuestion() {
+  const i = getTodayIndex();
+  return (i >= 0 && i < QOTD.length) ? QOTD[i] : null;
+}
+
+// 한글 이름은 3자까지만, 영어 이름은 그대로 둔다
+function clampName() {
+  const el = document.getElementById('studentName');
+  const v = el.value;
+  if (/[가-힣]/.test(v)) {
+    const kept = (v.match(/[가-힣]/g) || []).slice(0, 3).join('');
+    if (kept !== v) el.value = kept;
+  }
+}
+
+// 질문 하나를 큰 박스에 띄운다. isPast=true 면 "지난 질문"으로 표시
+function showQuestion(idx, isPast) {
+  const qbox = document.getElementById('qbox');
+  if (idx < 0 || idx >= QOTD.length) {
+    document.getElementById('qtag').textContent = '';
+    document.getElementById('qtext').textContent = '오늘은 오늘의 질문 기간이 아니에요.';
+    document.getElementById('qkr').textContent = '';
+    document.getElementById('qex').textContent = '';
+    document.getElementById('qshort').textContent = '';
+    qbox.classList.remove('past');
+    currentQIndex = null;
+    qbox.classList.add('show');
+    return;
+  }
+  const q = QOTD[idx];
+  currentQIndex = idx;
+  document.getElementById('qtag').textContent = isPast ? ('지난 질문 · Day ' + (idx + 1)) : '오늘의 질문';
+  document.getElementById('qtext').textContent = q.en;
+  document.getElementById('qkr').textContent = q.kr;
+  const exEl = document.getElementById('qex');
+  exEl.textContent = '';
+  if (q.ex) {
+    const b = document.createElement('b'); b.textContent = '이렇게 답해요';
+    exEl.appendChild(b);
+    exEl.appendChild(document.createTextNode(q.ex));
+  }
+  const shEl = document.getElementById('qshort');
+  shEl.textContent = '';
+  if (q.short) {
+    const b2 = document.createElement('b'); b2.textContent = '짧은 버전';
+    shEl.appendChild(b2);
+    shEl.appendChild(document.createTextNode(q.short));
+  }
+  qbox.classList.toggle('past', !!isPast);
+  qbox.classList.add('show');
+  resetRecorder();
+  if (isPast) {
+    document.getElementById('recHint').textContent = 'Day ' + (idx + 1) + ' 질문에 답해보세요. 버튼을 눌러 시작!';
+    qbox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function buildPastList() {
+  const wrap = document.getElementById('pastwrap');
+  const list = document.getElementById('pastlist');
+  const todayIdx = getTodayIndex();
+  const last = Math.min(todayIdx, QOTD.length);   // 어제(todayIdx-1)까지
+  list.innerHTML = '';
+  if (last <= 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  for (let i = 0; i < last; i++) {
+    const row = document.createElement('div');
+    row.className = 'pastrow';
+    row.innerHTML = '<div class="d">Day ' + (i + 1) + '</div>' +
+      '<div class="qe"></div><div class="qk"></div>';
+    row.querySelector('.qe').textContent = QOTD[i].en;
+    row.querySelector('.qk').textContent = QOTD[i].kr;
+    row.addEventListener('click', () => showQuestion(i, true));
+    list.appendChild(row);
+  }
+}
+
+function togglePast() {
+  const list = document.getElementById('pastlist');
+  const caret = document.getElementById('pastcaret');
+  const open = list.classList.toggle('open');
+  caret.textContent = open ? '▾' : '▸';
 }
 
 function selectTab(cat) {
@@ -199,37 +310,14 @@ function selectTab(cat) {
   document.getElementById('tabBook').classList.toggle('active', cat === '책읽기');
   document.getElementById('tabQotd').classList.toggle('active', cat === 'QOTD');
   const qbox = document.getElementById('qbox');
+  const pastwrap = document.getElementById('pastwrap');
   if (cat === 'QOTD') {
-    const q = getTodayQuestion();
-    if (q) {
-      document.getElementById('qtag').textContent = '오늘의 질문';
-      document.getElementById('qtext').textContent = q.en;
-      document.getElementById('qkr').textContent = q.kr;
-      const exEl = document.getElementById('qex');
-      exEl.textContent = '';
-      if (q.ex) {
-        const b = document.createElement('b'); b.textContent = '이렇게 답해요';
-        exEl.appendChild(b);
-        exEl.appendChild(document.createTextNode(q.ex));
-      }
-      const shEl = document.getElementById('qshort');
-      shEl.textContent = '';
-      if (q.short) {
-        const b2 = document.createElement('b'); b2.textContent = '짧은 버전';
-        shEl.appendChild(b2);
-        shEl.appendChild(document.createTextNode(q.short));
-      }
-      qbox.classList.add('show');
-    } else {
-      document.getElementById('qtag').textContent = '';
-      document.getElementById('qtext').textContent = '오늘은 오늘의 질문 기간이 아니에요.';
-      document.getElementById('qkr').textContent = '';
-      document.getElementById('qex').textContent = '';
-      document.getElementById('qshort').textContent = '';
-      qbox.classList.add('show');
-    }
+    showQuestion(getTodayIndex(), false);   // 오늘 질문
+    buildPastList();                        // 지난 질문 목록 채우기
   } else {
-    qbox.classList.remove('show');
+    currentQIndex = null;
+    qbox.classList.remove('show', 'past');
+    pastwrap.style.display = 'none';
   }
   resetRecorder();
   document.getElementById('recHint').textContent = (cat === 'QOTD')
@@ -455,6 +543,7 @@ async function submitRecording() {
       const base64 = await blobToBase64(audioBlob);
       lastPayload = JSON.stringify({
         studentName: name, category: currentCategory,
+        questionDay: (currentCategory === 'QOTD' && currentQIndex != null) ? (currentQIndex + 1) : '',
         audioBase64: base64, duration: durationSec, mimeType: mimeTypeUsed
       });
     }
@@ -479,6 +568,8 @@ async function submitRecording() {
   }
 }
 
+document.getElementById('studentName').addEventListener('input', clampName);
+document.getElementById('studentName').addEventListener('compositionend', clampName);
 selectTab('책읽기');
 </script>
 </body>
