@@ -226,13 +226,19 @@ function getTodayQuestion() {
   return (i >= 0 && i < QOTD.length) ? QOTD[i] : null;
 }
 
-// 한글 이름은 3자까지만, 영어 이름은 그대로 둔다
-function clampName() {
+// 한글 이름은 3자까지만, 영어 이름은 그대로 둔다.
+// 한글 조합(IME) 도중에는 절대 건드리지 않는다 — 안 그러면 한 글자만 입력됨.
+function clampName(e) {
+  if (e && e.isComposing) return;
   const el = document.getElementById('studentName');
   const v = el.value;
   if (/[가-힣]/.test(v)) {
     const kept = (v.match(/[가-힣]/g) || []).slice(0, 3).join('');
-    if (kept !== v) el.value = kept;
+    if (kept !== v) {
+      const atEnd = el.selectionStart === v.length;
+      el.value = kept;
+      if (atEnd) { try { el.setSelectionRange(kept.length, kept.length); } catch (_) {} }
+    }
   }
 }
 
@@ -541,8 +547,13 @@ async function submitRecording() {
       const durationText = document.getElementById('timer').textContent.split(':');
       const durationSec = (parseInt(durationText[0], 10) || 0) * 60 + (parseInt(durationText[1], 10) || 0);
       const base64 = await blobToBase64(audioBlob);
+      // QOTD는 몇 번 질문인지 종류칸에 같이 남긴다: "QOTD-D3" → 리포트가 Day 3 로 인식.
+      // (구글 저장 코드는 종류칸에 이 문자열을 그대로 적으므로 손댈 필요 없음)
+      const catToSend = (currentCategory === 'QOTD' && currentQIndex != null)
+        ? ('QOTD-D' + (currentQIndex + 1))
+        : currentCategory;
       lastPayload = JSON.stringify({
-        studentName: name, category: currentCategory,
+        studentName: name, category: catToSend,
         questionDay: (currentCategory === 'QOTD' && currentQIndex != null) ? (currentQIndex + 1) : '',
         audioBase64: base64, duration: durationSec, mimeType: mimeTypeUsed
       });
