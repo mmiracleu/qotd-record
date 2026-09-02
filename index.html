@@ -231,6 +231,9 @@ function selectTab(cat) {
     qbox.classList.remove('show');
   }
   resetRecorder();
+  document.getElementById('recHint').textContent = (cat === 'QOTD')
+    ? '질문에 30초~1분 정도로 답해보세요. 버튼을 눌러 시작!'
+    : '버튼을 눌러 녹음을 시작하세요';
 }
 
 function resetRecorder() {
