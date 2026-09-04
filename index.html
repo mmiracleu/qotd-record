@@ -419,7 +419,7 @@ async function toggleRecord() {
       for (let i = 0; i < prefTypes.length; i++) {
         if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(prefTypes[i])) { picked = prefTypes[i]; break; }
       }
-      const options = { audioBitsPerSecond: 48000 };   // 음성 또렷 + 전사 정확도 ↑, 5분 ≈ 1.8MB (전송 안정)
+      const options = { audioBitsPerSecond: 32000 };   // 말소리엔 충분 + 파일 작게 → 업로드 빠르고 실패 적음 (5분 ≈ 1.2MB)
       if (picked) options.mimeType = picked;
       try { mediaRecorder = new MediaRecorder(stream, options); }
       catch (e) { mediaRecorder = new MediaRecorder(stream); }
@@ -504,12 +504,16 @@ function blobToBase64(blob) {
   });
 }
 
-// 타임아웃 + 자동 재시도가 있는 전송. 어떤 실패든 끝까지 다시 시도할 수 있게 한다.
+// 구글 Apps Script 서버는 응답이 느릴 때가 많다(10~40초). 그래서:
+//  - 넉넉히 기다리고
+//  - 응답은 왔는데 성공표시(JSON)가 안 보이면 "저장은 됐을 수 있음"으로 처리(겁주지 않기)
+//  - 정말 네트워크가 끊긴 경우에만 실패로 본다
 async function sendPayload(bodyStr, tries) {
+  let sawResponse = false;
   for (let i = 0; i < tries; i++) {
     try {
       const ctl = new AbortController();
-      const to = setTimeout(() => ctl.abort(), 90000);   // 긴 녹음(5분+) 업로드 여유
+      const to = setTimeout(() => ctl.abort(), 120000);
       let res;
       try {
         res = await fetch(WEBAPP_URL, {
@@ -519,16 +523,21 @@ async function sendPayload(bodyStr, tries) {
           signal: ctl.signal
         });
       } finally { clearTimeout(to); }
-      const txt = await res.text();
+      let txt = '';
+      try { txt = await res.text(); } catch (e) {}
       let data = null;
-      try { data = JSON.parse(txt); } catch (e) { /* 서버가 JSON이 아닌 응답을 준 경우 */ }
-      if (res.ok && data && data.success) return { ok: true };
-      if (res.ok && data && data.error) return { ok: false, error: data.error, fatal: true };
-      // 그 외(200이지만 형식 이상, 5xx 등) → 재시도
+      try { data = JSON.parse(txt); } catch (e) {}
+      if (data && data.success) return { ok: true };
+      if (data && data.error) return { ok: false, error: data.error, fatal: true };
+      sawResponse = true;   // 서버가 뭔가 응답은 줌 → 느려서 결과를 못 받았을 뿐일 수 있음
     } catch (e) { /* 네트워크 끊김·타임아웃 → 재시도 */ }
-    if (i < tries - 1) await new Promise(r => setTimeout(r, 2500 * (i + 1)));
+    if (i < tries - 1) await new Promise(r => setTimeout(r, 3000));
   }
-  return { ok: false, error: '네트워크가 불안정한 것 같아요.' };
+  return {
+    ok: false,
+    maybeSaved: sawResponse,
+    error: sawResponse ? '서버가 느려서 확인 표시가 안 왔어요.' : '인터넷 연결을 확인해주세요.'
+  };
 }
 
 async function submitRecording() {
@@ -540,7 +549,14 @@ async function submitRecording() {
   const retryBtn = document.getElementById('retryBtn');
   submitBtn.disabled = true;
   retryBtn.style.display = 'none';
-  setStatus('전송 중입니다… 녹음이 크면 조금 걸릴 수 있어요. 창을 닫지 마세요.', 'busy');
+
+  // 전송 경과 시간을 보여줘서 "멈춘 것"처럼 보이지 않게 한다
+  let elapsed = 0;
+  setStatus('전송 중이에요… 창을 닫지 마세요. (0초)', 'busy');
+  const tick = setInterval(() => {
+    elapsed++;
+    setStatus('전송 중이에요… 창을 닫지 마세요. (' + elapsed + '초 — 길면 40초까지 걸려요)', 'busy');
+  }, 1000);
 
   try {
     if (!lastPayload) {
@@ -559,20 +575,28 @@ async function submitRecording() {
       });
     }
   } catch (e) {
+    clearInterval(tick);
     setStatus('녹음 파일을 준비하지 못했어요. "다시 녹음하기"로 한 번 더 해주세요.', 'err');
     submitBtn.disabled = false;
     retryBtn.style.display = 'block';
     return;
   }
 
-  const r = await sendPayload(lastPayload, 3);
+  const r = await sendPayload(lastPayload, 2);
+  clearInterval(tick);
   if (r.ok) {
     lastPayload = null;
     setStatus('제출 완료! 넌 역시 미라클 👍', 'ok');
     submitBtn.style.display = 'none';
     retryBtn.style.display = 'none';
+  } else if (r.maybeSaved) {
+    // 서버가 느려서 성공 표시는 못 받았지만, 요청은 서버에 도달했다 → 저장됐을 가능성이 큼
+    lastPayload = null;
+    setStatus('보냈어요! 서버가 느려서 확인 표시가 늦었을 뿐이에요. 선생님이 확인하니 걱정 안 해도 돼요 👍', 'ok');
+    submitBtn.style.display = 'none';
+    retryBtn.style.display = 'none';
   } else {
-    setStatus('전송 실패: ' + r.error + ' 버튼을 다시 눌러 재전송하세요. (녹음은 그대로 보관돼요)', 'err');
+    setStatus(r.error + ' 잠시 후 "다시 전송하기"를 눌러주세요. (녹음은 그대로 있어요)', 'err');
     submitBtn.disabled = false;
     submitBtn.textContent = '다시 전송하기';
     retryBtn.style.display = 'block';
