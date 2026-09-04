@@ -222,8 +222,9 @@ let currentCategory = '책읽기';
 let currentQIndex = null;   // 지금 큰 박스에 띄운 질문 번호(0부터). 없으면 null
 let mediaRecorder, chunks = [], startTime, timerInterval, maxTimer, audioBlob, mimeTypeUsed;
 let lastPayload = null;     // 전송 실패 시 재전송용
-let doneDays = null;        // 이 아이가 이미 답한 질문 번호 배열. null = 조회 전/실패
+let doneDays = null;        // 이 아이가 이미 답한 질문 번호 배열. null = 아직 없음
 let doneDaysName = '';      // doneDays 가 어느 이름 기준인지
+let doneDaysLoading = false; // 서버 조회 진행 중
 let nameDebounce;
 
 function isWeekend(d) { const w = (d || new Date()).getDay(); return w === 0 || w === 6; }
@@ -283,10 +284,11 @@ async function refreshForName() {
   const name = document.getElementById('studentName').value.trim();
   if (!name) { doneDays = null; doneDaysName = ''; renderQuestionArea(); return; }
   if (name === doneDaysName && doneDays !== null) { renderQuestionArea(); return; }
-  doneDaysName = name; doneDays = null;
+  doneDaysName = name; doneDays = null; doneDaysLoading = true;
   renderQuestionArea();                          // 먼저 "불러오는 중"
   const data = await fetchDoneDays(name);
   if (document.getElementById('studentName').value.trim() !== name) return;
+  doneDaysLoading = false;
   doneDays = (data && Array.isArray(data.doneDays)) ? data.doneDays.map(Number) : null;
   renderQuestionArea();
 }
@@ -350,6 +352,7 @@ function renderQuestionArea() {
     if (doneDays && doneDays.indexOf(i) !== -1) continue;
     owed.push(i);
   }
+  const lookupFailed = !!name && !doneDaysLoading && doneDays === null;   // 조회했는데 실패/무응답
   const knowOwed = !!name && doneDays !== null;          // owed 를 믿을 수 있나
 
   // ---- 큰 박스 ----
@@ -377,8 +380,11 @@ function renderQuestionArea() {
   if (!name) {
     headText.textContent = '지난 질문 (이름을 넣으면 네가 안 한 것만 보여줄게요)';
     rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
-  } else if (doneDays === null) {
+  } else if (doneDaysLoading) {
     headText.textContent = '지난 질문 불러오는 중…';
+    rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
+  } else if (lookupFailed) {
+    headText.textContent = '지난 질문 (아직 안 한 게 있으면 골라서 해요)';
     rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
   } else if (owed.length === 0) {
     headText.textContent = '밀린 질문 없어요! 👍';
