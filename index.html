@@ -82,6 +82,11 @@
     padding: 10px 12px; font-size: 13px; font-weight: 700; color: #2e7d32;
     background: #F1F8F2; border: 1px solid #DCEEDE; border-radius: 10px;
   }
+  .pastlist .nameHint {
+    padding: 12px 14px; font-size: 13px; line-height: 1.6; color: #6b7c8a;
+    background: #F4F8FB; border: 1px solid #DCEAF4; border-radius: 10px;
+  }
+  .pastlist .nameHint b { color: var(--miracle-blue-deep); }
   .pastrow {
     padding: 11px 12px; margin-bottom: 7px; border-radius: 10px;
     background: #EAF3FB; border: 1px solid #CFE3F3; cursor: pointer;
@@ -162,8 +167,8 @@
   </div>
 
   <div class="pastwrap" id="pastwrap">
-    <div class="pasthead" id="pasthead" onclick="togglePast()"><span id="pastcaret">▾</span> <span id="pastheadText">지난 질문</span></div>
-    <div class="pastlist open" id="pastlist"></div>
+    <div class="pasthead" id="pasthead" onclick="togglePast()"><span id="pastcaret">▸</span> <span id="pastheadText">지난 질문</span></div>
+    <div class="pastlist" id="pastlist"></div>
   </div>
 
   <div class="recorder">
@@ -227,11 +232,17 @@ let doneDaysName = '';      // doneDays 가 어느 이름 기준인지
 let doneDaysLoading = false; // 서버 조회 진행 중
 let nameDebounce;
 
-function isWeekend(d) { const w = (d || new Date()).getDay(); return w === 0 || w === 6; }
+// 테스트용: 주소에 ?today=2026-09-07 을 붙이면 그 날짜인 것처럼 동작한다 (평소엔 오늘).
+function TODAY() {
+  const q = new URLSearchParams(location.search).get('today');
+  if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) { const p = q.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0); }
+  return new Date();
+}
+function isWeekend(d) { const w = (d || TODAY()).getDay(); return w === 0 || w === 6; }
 
 // 학교 다니는 날(월~금)만 세서 오늘이 몇 번째 질문 날인지. 주말이면 직전 금요일 번호.
 function schoolDayNum(d) {
-  const ref = d || new Date();
+  const ref = d || TODAY();
   const s = new Date(START_DATE.getFullYear(), START_DATE.getMonth(), START_DATE.getDate());
   const e = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
   if (e < s) return 0;
@@ -333,8 +344,14 @@ function togglePast() {
   const open = list.classList.toggle('open');
   document.getElementById('pastcaret').textContent = open ? '▾' : '▸';
 }
+function closePast() {
+  document.getElementById('pastlist').classList.remove('open');
+  document.getElementById('pastcaret').textContent = '▸';
+}
 
-// QOTD 탭의 큰 박스 + "안 한 질문" 목록을 지금 상태(이름·요일·조회결과)에 맞게 그린다
+// QOTD 탭의 큰 박스 + "안 한 질문" 목록을 지금 상태(이름·요일·조회결과)에 맞게 그린다.
+// 규칙: 이름 없음/조회중/조회실패 = 목록에 질문을 하나도 안 뿌린다(30개 전체 노출 절대 금지).
+//       주말 = 큰 박스는 무조건 "쉬는 날" 안내. 질문 자동 표시 안 함. 밀린 질문은 ▸ 눌러서만.
 function renderQuestionArea() {
   if (currentCategory !== 'QOTD') return;
   const weekend = isWeekend();
@@ -344,25 +361,22 @@ function renderQuestionArea() {
   const list = document.getElementById('pastlist');
   const headText = document.getElementById('pastheadText');
 
-  // 목록 후보 범위: 평일이면 오늘 것 빼고 어제까지, 주말이면 이번 주 금요일까지
-  const lastInList = weekend ? Math.min(todayNum, QOTD.length) : Math.min(todayNum, QOTD.length) - 1;
-
+  const lastNeeded = Math.min(todayNum, QOTD.length);    // 지금까지 나왔어야 할 마지막 질문 번호
+  const knowOwed = !!name && Array.isArray(doneDays);    // 서버 조회 성공 → owed 신뢰 가능
   let owed = [];
-  for (let i = 1; i <= lastInList; i++) {
-    if (doneDays && doneDays.indexOf(i) !== -1) continue;
-    owed.push(i);
+  if (knowOwed) {
+    for (let i = 1; i <= lastNeeded; i++) if (doneDays.indexOf(i) === -1) owed.push(i);
   }
-  const lookupFailed = !!name && !doneDaysLoading && doneDays === null;   // 조회했는데 실패/무응답
-  const knowOwed = !!name && doneDays !== null;          // owed 를 믿을 수 있나
 
   // ---- 큰 박스 ----
   if (weekend) {
     if (knowOwed && owed.length === 0) {
-      setBigMessage('주말', '이번 주 질문 다 했어요! 👍', '쉬어도 좋아요. 더 하고 싶으면 아래에서 골라요.');
+      setBigMessage('주말', '이번 주 질문 다 했어요! 👍', '푹 쉬어요. 월요일에 다시 만나요.');
     } else if (knowOwed && owed.length > 0) {
-      showQuestion(owed[0] - 1, true);                   // 안 한 것 중 첫 번째 자동 표시
+      setBigMessage('주말', '주말은 쉬는 날이에요 🌿',
+        '이번 주에 못 한 질문 ' + owed.length + '개가 있어요. 하고 싶으면 아래 "지난 질문 ▸" 을 눌러 골라서 해요. (안 해도 괜찮아요)');
     } else {
-      setBigMessage('주말', '주말이에요.', '이번 주에 못 한 질문이 있다면 완료해주세요.');
+      setBigMessage('주말', '주말은 쉬는 날이에요 🌿', '위에 이름을 넣으면, 이번 주에 못 한 질문이 있는지 알려줄게요.');
     }
   } else if (todayNum >= 1 && todayNum <= QOTD.length) {
     showQuestion(todayNum - 1, false);                   // 평일: 오늘 질문
@@ -373,29 +387,32 @@ function renderQuestionArea() {
 
   // ---- "안 한 질문" 목록 ----
   list.innerHTML = '';
-  if (lastInList <= 0) { wrap.style.display = 'none'; return; }
+  if (lastNeeded <= 0) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
 
-  let rows;
   if (!name) {
-    headText.textContent = '지난 질문 (이름을 넣으면 네가 안 한 것만 보여줄게요)';
-    rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
-  } else if (doneDaysLoading) {
-    headText.textContent = '지난 질문 불러오는 중…';
-    rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
-  } else if (lookupFailed) {
-    headText.textContent = '지난 질문 (아직 안 한 게 있으면 골라서 해요)';
-    rows = []; for (let i = 1; i <= lastInList; i++) rows.push(i);
-  } else if (owed.length === 0) {
+    headText.textContent = '지난 질문';
+    list.innerHTML = '<div class="nameHint">위에 <b>이름</b>을 먼저 넣어주세요. 그러면 <b>네가 아직 안 한 질문</b>만 여기에 나와요.</div>';
+    closePast();
+    return;
+  }
+  if (doneDaysLoading) {
+    headText.textContent = '불러오는 중…';
+    list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요…</div>';
+    return;
+  }
+  if (!knowOwed) {   // 조회 실패 — 전체를 뿌리지 않는다
+    headText.textContent = '지난 질문';
+    list.innerHTML = '<div class="nameHint">기록을 불러오지 못했어요. 이름을 다시 확인하거나, 잠시 후 새로고침 해주세요.</div>';
+    return;
+  }
+  if (owed.length === 0) {
     headText.textContent = '밀린 질문 없어요! 👍';
     list.innerHTML = '<div class="doneMsg">이번 주 질문 다 했어요! 잘하고 있어요 👍</div>';
     return;
-  } else {
-    headText.textContent = '안 한 질문 ' + owed.length + '개 — 눌러서 녹음해요';
-    rows = owed;
   }
-
-  rows.forEach((dnum) => {
+  headText.textContent = '안 한 질문 ' + owed.length + '개 — 눌러서 녹음해요';
+  owed.forEach((dnum) => {
     const q = QOTD[dnum - 1];
     const row = document.createElement('div');
     row.className = 'pastrow';
