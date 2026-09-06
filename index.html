@@ -87,6 +87,7 @@
     background: #F4F8FB; border: 1px solid #DCEAF4; border-radius: 10px;
   }
   .pastlist .nameHint b { color: var(--miracle-blue-deep); }
+  .pastlist .nameHint a { display: inline-block; margin-top: 8px; color: var(--miracle-blue-deep); font-weight: 700; text-decoration: none; }
   .pastrow {
     padding: 11px 12px; margin-bottom: 7px; border-radius: 10px;
     background: #EAF3FB; border: 1px solid #CFE3F3; cursor: pointer;
@@ -230,6 +231,7 @@ let lastPayload = null;     // 전송 실패 시 재전송용
 let doneDays = null;        // 이 아이가 이미 답한 질문 번호 배열. null = 아직 없음
 let doneDaysName = '';      // doneDays 가 어느 이름 기준인지
 let doneDaysLoading = false; // 서버 조회 진행 중
+let showAllFallback = false; // 기록을 전혀 모를 때 아이가 "직접 고를래요" 를 눌렀나
 let nameDebounce;
 
 // 테스트용: 주소에 ?today=2026-09-07 을 붙이면 그 날짜인 것처럼 동작한다 (평소엔 오늘).
@@ -290,17 +292,51 @@ function fetchDoneDays(name) {
   });
 }
 
+// 이 아이가 한 질문 번호를 "이 기기"에 저장/불러오기 (서버가 없어도 동작하게).
+function _doneKey(name) { return 'qotd_done_v1_' + name; }
+function loadDoneLocal(name) {
+  try {
+    const a = JSON.parse(localStorage.getItem(_doneKey(name)) || 'null');
+    return Array.isArray(a) ? a.map(Number).filter((n) => n > 0) : null;
+  } catch (_) { return null; }
+}
+function saveDoneLocal(name, arr) {
+  try {
+    if (!name || !Array.isArray(arr)) return;
+    const clean = Array.from(new Set(arr.map(Number).filter((n) => n > 0))).sort((a, b) => a - b);
+    localStorage.setItem(_doneKey(name), JSON.stringify(clean));
+  } catch (_) {}
+}
+function _mergeDays(a, b) {
+  return Array.from(new Set([].concat(a || [], b || []).map(Number).filter((n) => n > 0))).sort((x, y) => x - y);
+}
+
 async function refreshForName() {
   if (currentCategory !== 'QOTD') return;
   const name = document.getElementById('studentName').value.trim();
-  if (!name) { doneDays = null; doneDaysName = ''; renderQuestionArea(); return; }
-  if (name === doneDaysName && doneDays !== null) { renderQuestionArea(); return; }
-  doneDaysName = name; doneDays = null; doneDaysLoading = true;
-  renderQuestionArea();                          // 먼저 "불러오는 중"
+  showAllFallback = false;
+  if (!name) { doneDays = null; doneDaysName = ''; doneDaysLoading = false; renderQuestionArea(); return; }
+
+  doneDaysName = name;
+  // 1) 이 기기에 저장된 기록을 먼저 쓴다 → 서버가 죽어 있어도 "안 한 질문"이 바로 나온다.
+  const local = loadDoneLocal(name);
+  if (local && local.length) { doneDays = local; doneDaysLoading = false; }
+  else { doneDays = null; doneDaysLoading = true; }
+  renderQuestionArea();
+
+  // 2) 서버에도 물어서 (다른 기기에서 한 것까지) 있으면 합친다.
   const data = await fetchDoneDays(name);
   if (document.getElementById('studentName').value.trim() !== name) return;
   doneDaysLoading = false;
-  doneDays = (data && Array.isArray(data.doneDays)) ? data.doneDays.map(Number) : null;
+  const server = (data && Array.isArray(data.doneDays)) ? data.doneDays.map(Number) : null;
+  if (server) {
+    doneDays = _mergeDays(local, server);
+    saveDoneLocal(name, doneDays);
+  } else if (local && local.length) {
+    doneDays = local;                 // 서버 실패 → 로컬 유지 (에러 안 보임)
+  } else {
+    doneDays = null;                  // 이 기기 첫 사용 + 서버도 실패 → 기록 모름
+  }
   renderQuestionArea();
 }
 
@@ -401,9 +437,17 @@ function renderQuestionArea() {
     list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요…</div>';
     return;
   }
-  if (!knowOwed) {   // 조회 실패 — 전체를 뿌리지 않는다
+  if (!knowOwed) {   // 이 기기 첫 사용 + 서버도 실패 → 기록을 모름. 전체를 자동으로 뿌리지 않는다.
     headText.textContent = '지난 질문';
-    list.innerHTML = '<div class="nameHint">기록을 불러오지 못했어요. 이름을 다시 확인하거나, 잠시 후 새로고침 해주세요.</div>';
+    if (showAllFallback) {
+      const all = []; for (let i = 1; i <= lastNeeded; i++) all.push(i);
+      renderQRows(list, all);
+    } else {
+      list.innerHTML = '<div class="nameHint">네 기록을 아직 몰라요. 한 번 녹음하면 이 기기가 기억해요.<br>' +
+        '<a href="#" id="pickAll">그래도 직접 골라서 할래요 →</a></div>';
+      const a = document.getElementById('pickAll');
+      if (a) a.addEventListener('click', (ev) => { ev.preventDefault(); showAllFallback = true; openPast(); renderQuestionArea(); });
+    }
     return;
   }
   if (owed.length === 0) {
@@ -412,8 +456,15 @@ function renderQuestionArea() {
     return;
   }
   headText.textContent = '안 한 질문 ' + owed.length + '개 — 눌러서 녹음해요';
-  owed.forEach((dnum) => {
+  renderQRows(list, owed);
+}
+
+// 질문 번호 배열을 눌러서 녹음할 수 있는 줄로 그린다.
+function renderQRows(list, dayNums) {
+  list.innerHTML = '';
+  dayNums.forEach((dnum) => {
     const q = QOTD[dnum - 1];
+    if (!q) return;
     const row = document.createElement('div');
     row.className = 'pastrow';
     row.innerHTML = '<div class="d"><span>Day ' + dnum + '</span><span class="go">▶ 녹음</span></div><div class="qe"></div><div class="qk"></div>';
@@ -703,10 +754,12 @@ async function submitRecording() {
   clearInterval(tick);
   if (r.ok || r.maybeSaved) {
     lastPayload = null;
-    // 방금 낸 질문은 "한 것"으로 기억 → 목록에서 빠지게 (다음 렌더 때)
+    // 방금 낸 질문은 "한 것"으로 기억 → 목록에서 빠지게. 이 기기에도 저장(서버 없어도 유지).
     if (currentCategory === 'QOTD' && currentQIndex != null) {
       if (!Array.isArray(doneDays)) doneDays = [];
       if (doneDays.indexOf(currentQIndex + 1) === -1) doneDays.push(currentQIndex + 1);
+      saveDoneLocal(name, doneDays);
+      showAllFallback = false;
     }
     setStatus(r.ok
       ? '제출 완료! 넌 역시 미라클 👍'
