@@ -384,6 +384,10 @@ function closePast() {
   document.getElementById('pastlist').classList.remove('open');
   document.getElementById('pastcaret').textContent = '▸';
 }
+function openPast() {
+  document.getElementById('pastlist').classList.add('open');
+  document.getElementById('pastcaret').textContent = '▾';
+}
 
 // QOTD 탭의 큰 박스 + "안 한 질문" 목록을 지금 상태(이름·요일·조회결과)에 맞게 그린다.
 // 규칙: 이름 없음/조회중/조회실패 = 목록에 질문을 하나도 안 뿌린다(30개 전체 노출 절대 금지).
