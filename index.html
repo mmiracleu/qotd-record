@@ -459,8 +459,9 @@ function renderQuestionArea() {
     list.innerHTML = '<div class="doneMsg">이번 주 질문 다 했어요! 잘하고 있어요 👍</div>';
     return;
   }
-  headText.textContent = '안 한 질문 ' + owed.length + '개 — 눌러서 녹음해요';
+  headText.textContent = '안 한 질문 ' + owed.length + '개';
   renderQRows(list, owed);
+  openPast();   // 실제로 안 한 질문이 있으면 목록을 자동으로 펼쳐서 보여준다 (눌러야만 보이면 안 한 걸로 착각함)
 }
 
 // 질문 번호 배열을 눌러서 녹음할 수 있는 줄로 그린다.
