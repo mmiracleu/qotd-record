@@ -233,6 +233,7 @@ let doneDaysName = '';      // doneDays 가 어느 이름 기준인지
 let doneDaysLoading = false; // 서버 조회 진행 중
 let showAllFallback = false; // 기록을 전혀 모를 때 아이가 "직접 고를래요" 를 눌렀나
 let nameDebounce;
+let lookupInFlight = '';     // 지금 서버에 조회 중인 이름 (중복 조회 방지)
 
 // 테스트용: 주소에 ?today=2026-09-07 을 붙이면 그 날짜인 것처럼 동작한다 (평소엔 오늘).
 function TODAY() {
@@ -278,28 +279,62 @@ function onNameInput(e) {
 }
 
 // 서버에 "이 아이가 답한 질문 번호" 물어보기 (JSONP — CORS 걱정 없음)
-function fetchDoneDaysOnce(name, timeoutMs) {
+// ---- 서버 조회: 어떤 기기·망에서도 끝까지 시도한다 ----
+// 결과 {data, err}. err 코드: T=시간초과, E=연결/차단, B=이상한 응답(서버 점검·오류 페이지 등)
+let lookupErr = '';          // 마지막 실패 코드 (화면에 작게 보여줌 → 문의할 때 알려주기 쉽게)
+let lookupTry = 0;           // 지금 몇 번째 시도인지 (로딩 문구용)
+let nameUnmatched = false;   // 서버가 "이 이름은 명단에 없어요" 라고 답함
+let autoRetries = 0;         // 실패 뒤 조용히 다시 시도한 횟수
+
+function lookupJsonp(name, timeoutMs) {
   return new Promise((resolve) => {
-    if (!name) { resolve(null); return; }
     const cb = 'qcb_' + Date.now() + '_' + Math.floor(Math.random() * 1e4);
     const s = document.createElement('script');
-    const fin = (v) => { try { delete window[cb]; } catch (_) {} if (s.parentNode) s.parentNode.removeChild(s); resolve(v); };
-    const timer = setTimeout(() => fin(null), timeoutMs);
-    window[cb] = (data) => { clearTimeout(timer); fin(data && data.ok ? data : null); };
-    s.onerror = () => { clearTimeout(timer); fin(null); };
+    let done = false;
+    const onWinErr = () => { setTimeout(() => fin({ data: null, err: 'B' }), 500); };   // 서버가 JS 대신 오류 페이지를 준 경우(문법 오류) 바로 실패 처리
+    const fin = (r) => { if (done) return; done = true; clearTimeout(timer); window.removeEventListener('error', onWinErr); try { delete window[cb]; } catch (_) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); resolve(r); };
+    const timer = setTimeout(() => fin({ data: null, err: 'T' }), timeoutMs);
+    window[cb] = (data) => fin(data && data.ok ? { data: data, err: '' } : { data: null, err: 'B' });
+    s.onerror = () => fin({ data: null, err: 'E' });
+    window.addEventListener('error', onWinErr);
     s.src = WEBAPP_URL + '?name=' + encodeURIComponent(name) + '&callback=' + cb + '&_=' + Date.now();
     document.head.appendChild(s);
   });
 }
-// 반 전체가 동시에 조회하면 서버 응답이 5~8초까지 느려진다(실측). 8초에 포기하면 태블릿에서 "기록 몰라요"가 뜨므로
-// 20초까지 기다리고, 그래도 실패하면 한 번 더 시도한다.
+// 두 번째 통로: 일반 요청(fetch). 스크립트 삽입을 막는 앱/브라우저에서도 되게.
+function lookupFetch(name, timeoutMs) {
+  return new Promise((resolve) => {
+    if (typeof fetch !== 'function') { resolve({ data: null, err: 'E' }); return; }
+    let done = false;
+    const fin = (r) => { if (done) return; done = true; clearTimeout(timer); resolve(r); };
+    const timer = setTimeout(() => fin({ data: null, err: 'T' }), timeoutMs);
+    fetch(WEBAPP_URL + '?name=' + encodeURIComponent(name) + '&_=' + Date.now(), { credentials: 'omit', redirect: 'follow' })
+      .then((r) => r.text())
+      .then((t) => { let j = null; try { j = JSON.parse(t); } catch (_) {} fin(j && j.ok ? { data: j, err: '' } : { data: null, err: 'B' }); })
+      .catch(() => fin({ data: null, err: 'E' }));
+  });
+}
+// 반 전체가 동시에 조회하면 서버 응답이 5~8초까지 느려진다(실측). 저가형 기기·집 와이파이는 더 느릴 수 있어서
+// 통로를 바꿔가며 3번, 총 최대 약 80초까지 끈질기게 시도한다. (이름을 바꾸면 즉시 중단)
 async function fetchDoneDays(name) {
-  let data = await fetchDoneDaysOnce(name, 20000);
-  if (!data && document.getElementById('studentName').value.trim() === name) {
-    await new Promise((r) => setTimeout(r, 1500));
-    if (document.getElementById('studentName').value.trim() === name) data = await fetchDoneDaysOnce(name, 20000);
+  const plan = [[lookupJsonp, 15000], [lookupFetch, 25000], [lookupJsonp, 35000]];
+  const stillSame = () => document.getElementById('studentName').value.trim() === name;
+  lookupErr = '';
+  for (let i = 0; i < plan.length; i++) {
+    if (!stillSame()) return null;
+    lookupTry = i + 1;
+    if (i > 0) updateLoadingNote();
+    const r = await plan[i][0](name, plan[i][1]);
+    if (r.data) { lookupErr = ''; return r.data; }
+    lookupErr = r.err || 'E';
+    await new Promise((res) => setTimeout(res, 800 + i * 1200));
   }
-  return data;
+  return null;
+}
+function updateLoadingNote() {
+  if (!doneDaysLoading) return;
+  const el = document.getElementById('loadingNote');
+  if (el) el.textContent = lookupTry > 1 ? '다시 불러오는 중이에요… (' + lookupTry + '/3) 조금만 기다려요' : '';
 }
 
 // 이 아이가 한 질문 번호를 "이 기기"에 저장/불러오기 (서버가 없어도 동작하게).
@@ -327,7 +362,11 @@ async function refreshForName() {
   showAllFallback = false;
   if (!name) { doneDays = null; doneDaysName = ''; doneDaysLoading = false; renderQuestionArea(); return; }
 
+  if (lookupInFlight === name) return;   // 같은 이름으로 이미 조회 중이면 또 묻지 않는다 (입력+포커스아웃이 겹쳐 서버에 2번 가는 것 방지)
+  if (doneDaysName !== name) autoRetries = 0;
   doneDaysName = name;
+  nameUnmatched = false;
+  lookupTry = 1;
   // 1) 이 기기에 저장된 기록을 먼저 쓴다 → 서버가 죽어 있어도 "안 한 질문"이 바로 나온다.
   const local = loadDoneLocal(name);
   if (local && local.length) { doneDays = local; doneDaysLoading = false; }
@@ -335,9 +374,17 @@ async function refreshForName() {
   renderQuestionArea();
 
   // 2) 서버에도 물어서 (다른 기기에서 한 것까지) 있으면 합친다.
-  const data = await fetchDoneDays(name);
+  lookupInFlight = name;
+  let data = null;
+  try { data = await fetchDoneDays(name); } finally { lookupInFlight = ''; }
   if (document.getElementById('studentName').value.trim() !== name) return;
   doneDaysLoading = false;
+  if (data && data.matched === false) {
+    nameUnmatched = true;             // 명단에 없는 이름 → 오타 안내 (기록은 로컬 것만)
+    doneDays = (local && local.length) ? local : null;
+    renderQuestionArea();
+    return;
+  }
   const server = (data && Array.isArray(data.doneDays)) ? data.doneDays.map(Number) : null;
   if (server) {
     doneDays = _mergeDays(local, server);
@@ -345,9 +392,14 @@ async function refreshForName() {
   } else if (local && local.length) {
     doneDays = local;                 // 서버 실패 → 로컬 유지 (에러 안 보임)
   } else {
-    doneDays = null;                  // 이 기기 첫 사용 + 서버도 실패 → 기록 모름
+    doneDays = null;                  // 이 기기 첫 사용 + 서버도 실패 → 기록 모름 (최근 질문을 대신 보여줌)
   }
   renderQuestionArea();
+  // 3) 그래도 못 받았으면 20초 뒤 조용히 다시 (최대 3번) — 잠깐 끊긴 망·바쁜 서버 대비
+  if (!server && !(local && local.length) && autoRetries < 3) {
+    autoRetries++;
+    setTimeout(() => { if (document.getElementById('studentName').value.trim() === name && !Array.isArray(doneDays)) refreshForName(); }, 20000);
+  }
 }
 
 function setBigMessage(tag, main, sub) {
@@ -448,25 +500,40 @@ function renderQuestionArea() {
   }
   if (doneDaysLoading) {
     headText.textContent = '불러오는 중…';
-    list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요… 조금만 기다려요 ⏳<br>(친구들이 같이 불러오면 몇 초 더 걸릴 수 있어요)</div>';
+    list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요… 조금만 기다려요 ⏳<br>(친구들이 같이 불러오면 몇 초 더 걸릴 수 있어요)<br><span id="loadingNote"></span></div>';
+    updateLoadingNote();
     openPast();
     return;
   }
-  if (!knowOwed) {   // 이 기기 첫 사용 + 서버도 실패 → 기록을 모름. 전체를 자동으로 뿌리지 않는다.
-    headText.textContent = '지난 질문';
-    if (showAllFallback) {
-      const all = []; for (let i = 1; i <= lastNeeded; i++) all.push(i);
-      renderQRows(list, all);
+  if (!knowOwed) {   // 기록을 못 받았다(이 기기 첫 사용 + 서버 실패, 또는 이름 오타). 화면이 비지 않게 항상 뭔가 보여준다.
+    list.innerHTML = '';
+    headText.textContent = nameUnmatched ? '이름을 확인해 주세요' : '최근 질문';
+    const note = document.createElement('div');
+    note.className = 'nameHint';
+    if (nameUnmatched) {
+      note.innerHTML = '이름을 명단에서 못 찾았어요. <b>성까지 3글자</b>로 다시 써봐요 (예: 김민지).<br>맞게 썼다면 아래에서 직접 골라도 돼요.';
     } else {
-      list.innerHTML = '<div class="nameHint">기록을 아직 못 불러왔어요.<br>' +
-        '<a href="#" id="retryLoad">🔄 다시 불러오기</a><br>' +
-        '<a href="#" id="pickAll">그래도 직접 골라서 할래요 →</a></div>';
-      const r = document.getElementById('retryLoad');
-      if (r) r.addEventListener('click', (ev) => { ev.preventDefault(); refreshForName(); });
-      const a = document.getElementById('pickAll');
-      if (a) a.addEventListener('click', (ev) => { ev.preventDefault(); showAllFallback = true; openPast(); renderQuestionArea(); });
-      openPast();
+      note.innerHTML = '기록을 아직 못 불러와서 <b>최근 질문</b>을 보여줄게요. 이미 한 건 안 해도 돼요.' +
+        (lookupErr ? ' <span style="opacity:.55">(오류코드 ' + lookupErr + ')</span>' : '') +
+        '<br><a href="#" id="retryLoad">🔄 다시 불러오기</a>';
     }
+    list.appendChild(note);
+    const from = showAllFallback ? 1 : Math.max(1, lastNeeded - 4);
+    const shown = []; for (let i = from; i <= lastNeeded; i++) shown.push(i);
+    const holder = document.createElement('div');
+    renderQRows(holder, shown);
+    list.appendChild(holder);
+    if (!showAllFallback && from > 1) {
+      const more = document.createElement('div');
+      more.className = 'nameHint';
+      more.innerHTML = '<a href="#" id="pickAll">더 예전 질문도 보기 →</a>';
+      list.appendChild(more);
+    }
+    const r = document.getElementById('retryLoad');
+    if (r) r.addEventListener('click', (ev) => { ev.preventDefault(); autoRetries = 0; refreshForName(); });
+    const a = document.getElementById('pickAll');
+    if (a) a.addEventListener('click', (ev) => { ev.preventDefault(); showAllFallback = true; openPast(); renderQuestionArea(); });
+    openPast();
     return;
   }
   if (owed.length === 0) {
