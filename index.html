@@ -278,18 +278,28 @@ function onNameInput(e) {
 }
 
 // 서버에 "이 아이가 답한 질문 번호" 물어보기 (JSONP — CORS 걱정 없음)
-function fetchDoneDays(name) {
+function fetchDoneDaysOnce(name, timeoutMs) {
   return new Promise((resolve) => {
     if (!name) { resolve(null); return; }
     const cb = 'qcb_' + Date.now() + '_' + Math.floor(Math.random() * 1e4);
     const s = document.createElement('script');
     const fin = (v) => { try { delete window[cb]; } catch (_) {} if (s.parentNode) s.parentNode.removeChild(s); resolve(v); };
-    const timer = setTimeout(() => fin(null), 8000);
+    const timer = setTimeout(() => fin(null), timeoutMs);
     window[cb] = (data) => { clearTimeout(timer); fin(data && data.ok ? data : null); };
     s.onerror = () => { clearTimeout(timer); fin(null); };
     s.src = WEBAPP_URL + '?name=' + encodeURIComponent(name) + '&callback=' + cb + '&_=' + Date.now();
     document.head.appendChild(s);
   });
+}
+// 반 전체가 동시에 조회하면 서버 응답이 5~8초까지 느려진다(실측). 8초에 포기하면 태블릿에서 "기록 몰라요"가 뜨므로
+// 20초까지 기다리고, 그래도 실패하면 한 번 더 시도한다.
+async function fetchDoneDays(name) {
+  let data = await fetchDoneDaysOnce(name, 20000);
+  if (!data && document.getElementById('studentName').value.trim() === name) {
+    await new Promise((r) => setTimeout(r, 1500));
+    if (document.getElementById('studentName').value.trim() === name) data = await fetchDoneDaysOnce(name, 20000);
+  }
+  return data;
 }
 
 // 이 아이가 한 질문 번호를 "이 기기"에 저장/불러오기 (서버가 없어도 동작하게).
@@ -438,7 +448,8 @@ function renderQuestionArea() {
   }
   if (doneDaysLoading) {
     headText.textContent = '불러오는 중…';
-    list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요…</div>';
+    list.innerHTML = '<div class="nameHint">네 기록을 불러오고 있어요… 조금만 기다려요 ⏳<br>(친구들이 같이 불러오면 몇 초 더 걸릴 수 있어요)</div>';
+    openPast();
     return;
   }
   if (!knowOwed) {   // 이 기기 첫 사용 + 서버도 실패 → 기록을 모름. 전체를 자동으로 뿌리지 않는다.
@@ -447,10 +458,14 @@ function renderQuestionArea() {
       const all = []; for (let i = 1; i <= lastNeeded; i++) all.push(i);
       renderQRows(list, all);
     } else {
-      list.innerHTML = '<div class="nameHint">네 기록을 아직 몰라요. 한 번 녹음하면 이 기기가 기억해요.<br>' +
+      list.innerHTML = '<div class="nameHint">기록을 아직 못 불러왔어요.<br>' +
+        '<a href="#" id="retryLoad">🔄 다시 불러오기</a><br>' +
         '<a href="#" id="pickAll">그래도 직접 골라서 할래요 →</a></div>';
+      const r = document.getElementById('retryLoad');
+      if (r) r.addEventListener('click', (ev) => { ev.preventDefault(); refreshForName(); });
       const a = document.getElementById('pickAll');
       if (a) a.addEventListener('click', (ev) => { ev.preventDefault(); showAllFallback = true; openPast(); renderQuestionArea(); });
+      openPast();
     }
     return;
   }
@@ -782,6 +797,13 @@ async function submitRecording() {
 document.getElementById('studentName').addEventListener('input', onNameInput);
 document.getElementById('studentName').addEventListener('compositionend', onNameInput);
 document.getElementById('studentName').addEventListener('blur', refreshForName);
+// 서버(Apps Script)를 미리 깨워둔다 — 이름 넣을 때 첫 조회가 덜 느리게.
+try {
+  window.qwarm = function () {};
+  const w = document.createElement('script');
+  w.src = WEBAPP_URL + '?ping=1&callback=qwarm&_=' + Date.now();
+  document.head.appendChild(w);
+} catch (_) {}
 selectTab('책읽기');
 </script>
 </body>
