@@ -245,7 +245,7 @@ function isWeekend(d) { const w = (d || TODAY()).getDay(); return w === 0 || w =
 
 // 방학·연휴 등 "학교 안 가는 평일" — 여기 있는 날은 주말처럼 새 질문이 안 나오고 밀린 것만 하면 됨.
 // 자동화.gs 의 CONFIG.HOLIDAYS 와 반드시 같은 날짜여야 함(안 그러면 서버·태블릿의 Day 번호가 어긋남).
-const HOLIDAYS = ['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'];   // 추석 연휴
+const HOLIDAYS = ['2026-09-25', '2026-09-26', '2026-09-27'];   // 추석 연휴(24일은 평소처럼 질문 나옴, 25일부터 추석 안내)
 function _ymdLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function isHoliday(d) { return HOLIDAYS.indexOf(_ymdLocal(d || TODAY())) > -1; }
 function isRestDay(d) { return isWeekend(d) || isHoliday(d); }   // 주말이거나 연휴 — 둘 다 "새 질문 없음" 날
@@ -484,9 +484,9 @@ function renderQuestionArea() {
       setBigMessage('추석', '🌕 행복한 추석 되세요!', '새로운 질문은 없어요. 다 한 거 확인했어요, 연휴 잘 보내고 와요 👍');
     } else if (knowOwed && owed.length > 0) {
       setBigMessage('추석', '🌕 행복한 추석 되세요!',
-        '새로운 질문은 없어요. 못 한 질문 ' + owed.length + '개가 있으면 아래 "지난 질문 ▸" 에서 골라 해봐요. (안 해도 괜찮아요)');
+        '새로운 질문은 없어요. 대신 밀린 질문 ' + owed.length + '개를 연휴 동안 꼭 다 해두세요! 아래 "지난 질문 ▸" 에서 하나씩 골라 하면 돼요.');
     } else {
-      setBigMessage('추석', '🌕 행복한 추석 되세요!', '새로운 질문은 없어요. 위에 이름을 넣으면 못 한 질문이 있는지 알려줄게요.');
+      setBigMessage('추석', '🌕 행복한 추석 되세요!', '새로운 질문은 없어요. 위에 이름을 넣으면 밀린 질문이 있는지 알려줄게요.');
     }
   } else if (weekend) {
     if (knowOwed && owed.length === 0) {
