@@ -243,7 +243,14 @@ function TODAY() {
 }
 function isWeekend(d) { const w = (d || TODAY()).getDay(); return w === 0 || w === 6; }
 
-// 학교 다니는 날(월~금)만 세서 오늘이 몇 번째 질문 날인지. 주말이면 직전 금요일 번호.
+// 방학·연휴 등 "학교 안 가는 평일" — 여기 있는 날은 주말처럼 새 질문이 안 나오고 밀린 것만 하면 됨.
+// 자동화.gs 의 CONFIG.HOLIDAYS 와 반드시 같은 날짜여야 함(안 그러면 서버·태블릿의 Day 번호가 어긋남).
+const HOLIDAYS = ['2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'];   // 추석 연휴
+function _ymdLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function isHoliday(d) { return HOLIDAYS.indexOf(_ymdLocal(d || TODAY())) > -1; }
+function isRestDay(d) { return isWeekend(d) || isHoliday(d); }   // 주말이거나 연휴 — 둘 다 "새 질문 없음" 날
+
+// 학교 다니는 날(월~금, 연휴 제외)만 세서 오늘이 몇 번째 질문 날인지. 쉬는 날이면 직전 학교 날 번호 그대로.
 function schoolDayNum(d) {
   const ref = d || TODAY();
   const s = new Date(START_DATE.getFullYear(), START_DATE.getMonth(), START_DATE.getDate());
@@ -251,8 +258,7 @@ function schoolDayNum(d) {
   if (e < s) return 0;
   let n = 0, cur = new Date(s), guard = 0;
   while (cur <= e && guard++ < 800) {
-    const w = cur.getDay();
-    if (w !== 0 && w !== 6) n++;
+    if (!isRestDay(cur)) n++;
     cur.setDate(cur.getDate() + 1);
   }
   return Math.min(n, QOTD.length);
@@ -457,7 +463,9 @@ function openPast() {
 function renderQuestionArea() {
   if (currentCategory !== 'QOTD') return;
   const weekend = isWeekend();
-  const todayNum = schoolDayNum();                       // 1..30 (주말이면 이번 주 금요일 번호)
+  const holidayToday = isHoliday();
+  const restDay = weekend || holidayToday;
+  const todayNum = schoolDayNum();                       // 1..30 (쉬는 날이면 직전 학교 날 번호)
   const name = document.getElementById('studentName').value.trim();
   const wrap = document.getElementById('pastwrap');
   const list = document.getElementById('pastlist');
@@ -471,7 +479,16 @@ function renderQuestionArea() {
   }
 
   // ---- 큰 박스 ----
-  if (weekend) {
+  if (holidayToday) {
+    if (knowOwed && owed.length === 0) {
+      setBigMessage('추석', '🌕 행복한 추석 되세요!', '새로운 질문은 없어요. 다 한 거 확인했어요, 연휴 잘 보내고 와요 👍');
+    } else if (knowOwed && owed.length > 0) {
+      setBigMessage('추석', '🌕 행복한 추석 되세요!',
+        '새로운 질문은 없어요. 못 한 질문 ' + owed.length + '개가 있으면 아래 "지난 질문 ▸" 에서 골라 해봐요. (안 해도 괜찮아요)');
+    } else {
+      setBigMessage('추석', '🌕 행복한 추석 되세요!', '새로운 질문은 없어요. 위에 이름을 넣으면 못 한 질문이 있는지 알려줄게요.');
+    }
+  } else if (weekend) {
     if (knowOwed && owed.length === 0) {
       setBigMessage('주말', '이번 주 질문 다 했어요! 👍', '푹 쉬어요. 월요일에 다시 만나요.');
     } else if (knowOwed && owed.length > 0) {
