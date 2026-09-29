@@ -264,22 +264,24 @@ function schoolDayNum(d) {
   return Math.min(n, QOTD.length);
 }
 
-// 한글 이름은 3자까지만, 영어 이름은 그대로. IME 조합 중엔 절대 안 건드림.
-function clampName(e) {
-  if (e && e.isComposing) return;
-  const el = document.getElementById('studentName');
-  const v = el.value;
-  if (/[가-힣]/.test(v)) {
-    const kept = (v.match(/[가-힣]/g) || []).slice(0, 3).join('');
-    if (kept !== v) {
-      const atEnd = el.selectionStart === v.length;
-      el.value = kept;
-      if (atEnd) { try { el.setSelectionRange(kept.length, kept.length); } catch (_) {} }
-    }
-  }
+// 한글 이름은 3자까지만, 영어 이름은 그대로.
+// 예전엔 타이핑 도중(input/compositionend)에도 이 규칙을 적용했는데, 일부 기기(특히 톡톡 안 브라우저 등
+// 저가형 기기의 한글 키보드)는 조합 중 isComposing 값이 정확하지 않아서, 타이핑 중간에 값을 건드리면
+// 조합 자체가 깨져 글자가 지워지는 문제가 반복적으로 있었다(문창훈 이름이 자꾸 "문"만 남는 사고).
+// 그래서 타이핑 중엔 절대 값을 건드리지 않고, 포커스를 벗어날 때(blur)와 실제로 이름을 사용하는 순간
+// (녹음 시작/전송 직전)에만 규칙을 적용한다.
+function clampNameStr(v) {
+  v = String(v == null ? '' : v).trim();
+  if (/[가-힣]/.test(v)) return (v.match(/[가-힣]/g) || []).slice(0, 3).join('');
+  return v;
 }
-function onNameInput(e) {
-  clampName(e);
+function clampName() {
+  const el = document.getElementById('studentName');
+  const kept = clampNameStr(el.value);
+  if (kept !== el.value) el.value = kept;
+  return kept;
+}
+function onNameInput() {
   clearTimeout(nameDebounce);
   nameDebounce = setTimeout(refreshForName, 700);
 }
@@ -632,7 +634,7 @@ async function toggleRecord() {
   }
 
   // ----- 녹음 시작 -----
-  const name = document.getElementById('studentName').value.trim();
+  const name = clampName();
   if (!name) {
     setStatus('먼저 이름을 입력해주세요.', 'err');
     document.getElementById('studentName').focus();
@@ -814,7 +816,7 @@ async function sendPayload(bodyStr, tries) {
 
 async function submitRecording() {
   if (!audioBlob && !lastPayload) return;
-  const name = document.getElementById('studentName').value.trim();
+  const name = clampName();
   if (!name) { setStatus('먼저 이름을 입력해주세요.', 'err'); document.getElementById('studentName').focus(); return; }
 
   const submitBtn = document.getElementById('submitBtn');
@@ -880,7 +882,7 @@ async function submitRecording() {
 
 document.getElementById('studentName').addEventListener('input', onNameInput);
 document.getElementById('studentName').addEventListener('compositionend', onNameInput);
-document.getElementById('studentName').addEventListener('blur', refreshForName);
+document.getElementById('studentName').addEventListener('blur', () => { clampName(); refreshForName(); });
 // 서버(Apps Script)를 미리 깨워둔다 — 이름 넣을 때 첫 조회가 덜 느리게.
 try {
   window.qwarm = function () {};
