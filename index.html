@@ -494,8 +494,8 @@ function renderQuestionArea() {
     if (knowOwed && owed.length === 0) {
       setBigMessage('주말', '이번 주 질문 다 했어요! 👍', '푹 쉬어요. 월요일에 다시 만나요.');
     } else if (knowOwed && owed.length > 0) {
-      setBigMessage('주말', '주말은 쉬는 날이에요 🌿',
-        '이번 주에 못 한 질문 ' + owed.length + '개가 있어요. 하고 싶으면 아래 "지난 질문 ▸" 을 눌러 골라서 해요. (안 해도 괜찮아요)');
+      setBigMessage('주말', '주말이에요 🌿 밀린 질문부터 끝내요!',
+        '새로운 질문은 없어요. 대신 밀린 질문 ' + owed.length + '개를 주말 동안 꼭 다 해두세요! 아래 "안 한 질문" 에서 하나씩 눌러 녹음하면 돼요.');
     } else {
       setBigMessage('주말', '주말은 쉬는 날이에요 🌿', '위에 이름을 넣으면, 이번 주에 못 한 질문이 있는지 알려줄게요.');
     }
@@ -560,7 +560,7 @@ function renderQuestionArea() {
     list.innerHTML = '<div class="doneMsg">이번 주 질문 다 했어요! 잘하고 있어요 👍</div>';
     return;
   }
-  headText.textContent = '안 한 질문 ' + owed.length + '개';
+  headText.textContent = '안 한 질문 ' + owed.length + '개 · Day ' + owed.slice(0, 8).join(', ') + (owed.length > 8 ? ' …' : '');
   renderQRows(list, owed);
   openPast();   // 실제로 안 한 질문이 있으면 목록을 자동으로 펼쳐서 보여준다 (눌러야만 보이면 안 한 걸로 착각함)
 }
