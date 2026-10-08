@@ -117,7 +117,13 @@
   .rec-btn:active { transform: scale(0.96); }
   .rec-btn.recording { background: #C0392B; animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(231,76,60,.5);} 70%{box-shadow:0 0 0 18px rgba(231,76,60,0);} 100%{box-shadow:0 0 0 0 rgba(231,76,60,0);} }
-  .timer { font-size: 22px; font-weight: 700; margin: 14px 0; color: var(--ink); }
+  .timer { font-size: 22px; font-weight: 700; margin: 14px 0 6px; color: var(--ink); }
+  .goalwrap { display: none; margin: 0 auto 12px; max-width: 340px; }
+  .goalwrap.show { display: block; }
+  .goalbar { height: 14px; border-radius: 8px; background: #E8EEF5; overflow: hidden; }
+  .goalfill { height: 100%; width: 0%; border-radius: 8px; background: var(--miracle-blue-deep); transition: width .25s linear; }
+  .goalfill.done { background: var(--green); }
+  .goaltxt { font-size: 14px; font-weight: 600; color: var(--ink); margin-top: 8px; min-height: 20px; }
   .hint { font-size: 13px; color: #9aa7b2; margin-bottom: 6px; }
 
   audio { width: 100%; margin: 16px 0; display: none; }
@@ -176,6 +182,7 @@
     <div class="hint" id="recHint">버튼을 눌러 녹음을 시작하세요</div>
     <button class="rec-btn" id="recBtn" onclick="toggleRecord()">🎙️</button>
     <div class="timer" id="timer">00:00</div>
+    <div class="goalwrap" id="goalwrap"><div class="goalbar"><div class="goalfill" id="goalfill"></div></div><div class="goaltxt" id="goaltxt"></div></div>
     <audio id="player" controls></audio>
     <button class="submit-btn" id="submitBtn" onclick="submitRecording()">이 녹음 제출하기</button>
     <button class="retry-btn" id="retryBtn" onclick="retryRecord()">🎙️ 다시 녹음하기</button>
@@ -227,6 +234,28 @@ const START_DATE = new Date(2026, 8, 1);   // 2026-09-01 = About Me Day 1
 let currentCategory = '책읽기';
 let currentQIndex = null;   // 지금 큰 박스에 띄운 질문 번호(0부터). 없으면 null
 let mediaRecorder, chunks = [], startTime, timerInterval, maxTimer, audioBlob, mimeTypeUsed;
+
+// ---- 오늘의 질문 = "1분 동안 계속 말하기" 목표 (책읽기는 해당 없음). 제출을 막지는 않고, 말하는 동안 막대로 보여주며 응원만 한다. ----
+const GOAL_SEC = 60;
+let lastDurSec = 0;   // 마지막 녹음 길이(초) — 제출 완료 문구에 사용
+function goalMsg(sec) {
+  if (sec >= GOAL_SEC) return '1분 성공! 🎉 더 말해도 좋아요';
+  if (sec >= 45) return '조금만 더! 거의 다 왔어요 💪';
+  if (sec >= 30) return '벌써 반이나 왔어요! 계속 말해요';
+  if (sec >= 15) return '좋아요! 멈추지 말고 계속 말해요';
+  return '천천히 시작해요. 생각나는 대로 말해요!';
+}
+function showGoal(sec, idleText) {
+  const wrap = document.getElementById('goalwrap');
+  const on = currentCategory === 'QOTD';
+  wrap.classList.toggle('show', on);
+  if (!on) return;
+  const fill = document.getElementById('goalfill');
+  fill.style.width = Math.min(100, sec / GOAL_SEC * 100) + '%';
+  fill.classList.toggle('done', sec >= GOAL_SEC);
+  document.getElementById('goaltxt').textContent = idleText || goalMsg(sec);
+}
+function goalIdle() { showGoal(0, '목표: 1분 동안 계속 말하기!'); }
 let lastPayload = null;     // 전송 실패 시 재전송용
 let doneDays = null;        // 이 아이가 이미 답한 질문 번호 배열. null = 아직 없음
 let doneDaysName = '';      // doneDays 가 어느 이름 기준인지
@@ -439,7 +468,7 @@ function showQuestion(idx, isPicked) {
   qbox.classList.toggle('past', !!isPicked);
   qbox.classList.add('show');
   resetRecorder();
-  document.getElementById('recHint').textContent = 'Day ' + (idx + 1) + ' 질문에 답해보세요. 버튼을 눌러 시작!';
+  document.getElementById('recHint').textContent = 'Day ' + (idx + 1) + ' 질문에 1분 동안 계속 말해보세요! 버튼을 눌러 시작!';
   if (isPicked) qbox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -596,8 +625,9 @@ function selectTab(cat) {
     pastwrap.style.display = 'none';
   }
   document.getElementById('recHint').textContent = (cat === 'QOTD')
-    ? '질문에 30초~1분 정도로 답해보세요. 버튼을 눌러 시작!'
+    ? '1분 동안 쉬지 않고 계속 말해보세요! 막대가 가득 차면 성공 🎉 버튼을 눌러 시작!'
     : '책 한 권에 녹음 하나씩 올려주세요. 버튼을 눌러 시작!';
+  goalIdle();
 }
 
 function resetRecorder() {
@@ -612,6 +642,7 @@ function resetRecorder() {
   document.getElementById('timer').textContent = '00:00';
   audioBlob = null;
   lastPayload = null;
+  goalIdle();
 }
 
 function setStatus(msg, kind) {
@@ -628,6 +659,7 @@ async function toggleRecord() {
     mediaRecorder.stop();
     clearInterval(timerInterval);
     clearTimeout(maxTimer);
+    const tEl = document.getElementById('timer'); tEl.textContent = tEl.textContent.split(' ')[0];   // " / 01:00" 꼬리표 제거 (제출 때 길이를 이 글자에서 읽음)
     btn.classList.remove('recording');
     document.getElementById('recHint').textContent = '녹음 완료! 아래에서 들어보고 제출하세요';
     return;
@@ -728,6 +760,14 @@ async function toggleRecord() {
         if (recSec > 3 && audioBlob.size < recSec * 1500) {
           setStatus('소리가 거의 안 들어간 것 같아요. 마이크에 가까이 대고 "다시 녹음하기"로 한 번 더 해주세요.', 'err');
         }
+        if (currentCategory === 'QOTD' && document.getElementById('status').className.indexOf('err') === -1) {
+          const secDone = Math.round(recSec);
+          lastDurSec = secDone;
+          showGoal(secDone);
+          setStatus(secDone >= GOAL_SEC
+            ? '1분 넘게 말했어요! 정말 잘했어요 🎉 아래에서 들어보고 제출하세요.'
+            : secDone + '초 말했어요. 목표는 1분! 한 번 더 도전해서 1분을 채워볼래요? ("다시 녹음하기") 그대로 제출해도 돼요.', secDone >= GOAL_SEC ? 'ok' : 'busy');
+        }
         document.getElementById('submitBtn').style.display = 'block';
         document.getElementById('retryBtn').style.display = 'block';
         stream.getTracks().forEach(t => t.stop());
@@ -763,8 +803,10 @@ function updateTimer() {
   const sec = Math.floor((Date.now() - startTime) / 1000);
   const m = String(Math.floor(sec / 60)).padStart(2, '0');
   const s = String(sec % 60).padStart(2, '0');
-  document.getElementById('timer').textContent = m + ':' + s;
-  if (sec >= 60 && sec % 60 === 0) {   // 1분 넘어가면 계속 녹음 중임을 알려줌 (책읽기 등 긴 녹음)
+  const isQ = currentCategory === 'QOTD';
+  document.getElementById('timer').textContent = m + ':' + s + (isQ ? ' / 01:00' : '');
+  if (isQ) showGoal(sec);
+  else if (sec >= 60 && sec % 60 === 0) {   // 1분 넘어가면 계속 녹음 중임을 알려줌 (책읽기 등 긴 녹음)
     document.getElementById('recHint').textContent = Math.floor(sec / 60) + '분째 녹음 중… 다 하면 버튼을 눌러 멈추세요';
   }
 }
@@ -836,6 +878,7 @@ async function submitRecording() {
     if (!lastPayload) {
       const durationText = document.getElementById('timer').textContent.split(':');
       const durationSec = (parseInt(durationText[0], 10) || 0) * 60 + (parseInt(durationText[1], 10) || 0);
+      lastDurSec = durationSec;
       const base64 = await blobToBase64(audioBlob);
       // QOTD는 몇 번 질문인지 종류칸에 같이 남긴다: "QOTD-D3" → 리포트가 Day 3 로 인식.
       // (구글 저장 코드는 종류칸에 이 문자열을 그대로 적으므로 손댈 필요 없음)
@@ -867,8 +910,10 @@ async function submitRecording() {
       saveDoneLocal(name, doneDays);
       showAllFallback = false;
     }
+    const goalNote = (currentCategory === 'QOTD' && lastDurSec > 0)
+      ? (lastDurSec >= GOAL_SEC ? ' 1분 넘게 말했어요 🎉' : ' ' + lastDurSec + '초 말했어요. 다음엔 1분 도전!') : '';
     setStatus(r.ok
-      ? '제출 완료! 넌 역시 미라클 👍'
+      ? '제출 완료! 넌 역시 미라클 👍' + goalNote
       : '보냈어요! 서버가 느려서 확인 표시가 늦었을 뿐이에요. 선생님이 확인하니 걱정 안 해도 돼요 👍', 'ok');
     submitBtn.style.display = 'none';
     retryBtn.style.display = 'none';
