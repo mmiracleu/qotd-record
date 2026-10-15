@@ -321,7 +321,8 @@ const SET_STARTS = (() => {
 })();
 function qSetFor(day) {
   if (day <= QOTD.length) return [day];
-  const st = SET_STARTS[(day - QOTD.length - 1) % SET_STARTS.length];
+  // Day 31(첫 묶음)과 Day 32(2026-10-15, Sunny 요청으로 다시 1~5번부터)는 둘 다 1~5번. Day 33부터 3~7, 5~9 … 로 2칸씩 민다.
+  const st = SET_STARTS[day <= QOTD.length + 1 ? 0 : (day - QOTD.length - 2) % SET_STARTS.length];
   const out = []; for (let i = 0; i < SET_SIZE; i++) out.push(st + i);
   return out;
 }
