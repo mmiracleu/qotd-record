@@ -118,6 +118,7 @@
   .rec-btn.recording { background: #C0392B; animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(231,76,60,.5);} 70%{box-shadow:0 0 0 18px rgba(231,76,60,0);} 100%{box-shadow:0 0 0 0 rgba(231,76,60,0);} }
   .timer { font-size: 22px; font-weight: 700; margin: 14px 0 6px; color: var(--ink); }
+  #qtext, #qkr, .pastrow .qe { white-space: pre-line; }
   .goalwrap { display: none; margin: 0 auto 12px; max-width: 340px; }
   .goalwrap.show { display: block; }
   .goalbar { height: 14px; border-radius: 8px; background: #E8EEF5; overflow: hidden; }
@@ -290,7 +291,23 @@ function schoolDayNum(d) {
     if (!isRestDay(cur)) n++;
     cur.setDate(cur.getDate() + 1);
   }
-  return Math.min(n, QOTD.length);
+  return n;   // 질문이 30개를 넘어가도 번호는 계속 센다(Day 31부터는 아래 qSetFor 로 5개 묶음)
+}
+
+// Day 1~30 = 질문 1개씩. Day 31부터 = 5개 묶음을 2칸씩 밀면서(1-5, 3-7, 5-9 … 25-29, 26-30) 한 번에 이어서 답한다. 다 돌면 처음 묶음부터 다시.
+const SET_SIZE = 5;
+const SET_STARTS = (() => {
+  const a = [];
+  for (let st = 1; st + SET_SIZE - 1 <= QOTD.length; st += 2) a.push(st);
+  const lastStart = QOTD.length - SET_SIZE + 1;
+  if (a[a.length - 1] !== lastStart) a.push(lastStart);
+  return a;
+})();
+function qSetFor(day) {
+  if (day <= QOTD.length) return [day];
+  const st = SET_STARTS[(day - QOTD.length - 1) % SET_STARTS.length];
+  const out = []; for (let i = 0; i < SET_SIZE; i++) out.push(st + i);
+  return out;
 }
 
 // 한글 이름은 3자까지만, 영어 이름은 그대로.
@@ -455,20 +472,24 @@ function setBigMessage(tag, main, sub) {
 // 큰 박스에 질문 하나 띄우기 (idx 0-based). isPicked=true → 목록에서 고른 것
 function showQuestion(idx, isPicked) {
   const qbox = document.getElementById('qbox');
-  if (idx < 0 || idx >= QOTD.length) { setBigMessage('', '오늘의 질문 기간이 아니에요.', ''); return; }
-  const q = QOTD[idx];
+  if (idx < 0) { setBigMessage('', '오늘의 질문 기간이 아니에요.', ''); return; }
+  const set = qSetFor(idx + 1);
+  const multi = set.length > 1;
+  const q = QOTD[set[0] - 1];
   currentQIndex = idx;
-  document.getElementById('qtag').textContent = 'Day ' + (idx + 1) + ' 질문';
-  document.getElementById('qtext').textContent = q.en;
-  document.getElementById('qkr').textContent = q.kr;
+  document.getElementById('qtag').textContent = multi ? ('Day ' + (idx + 1) + ' · 질문 ' + set.length + '개를 이어서 답해요') : ('Day ' + (idx + 1) + ' 질문');
+  document.getElementById('qtext').textContent = multi ? set.map((i) => i + '. ' + QOTD[i - 1].en).join('\n') : q.en;
+  document.getElementById('qkr').textContent = multi ? set.map((i) => i + '. ' + QOTD[i - 1].kr).join('\n') : q.kr;
   const exEl = document.getElementById('qex'); exEl.textContent = '';
-  if (q.ex) { const b = document.createElement('b'); b.textContent = '이렇게 답해요'; exEl.appendChild(b); exEl.appendChild(document.createTextNode(q.ex)); }
+  if (!multi && q.ex) { const b = document.createElement('b'); b.textContent = '이렇게 답해요'; exEl.appendChild(b); exEl.appendChild(document.createTextNode(q.ex)); }
   const shEl = document.getElementById('qshort'); shEl.textContent = '';
-  if (q.short) { const b2 = document.createElement('b'); b2.textContent = '짧은 버전'; shEl.appendChild(b2); shEl.appendChild(document.createTextNode(q.short)); }
+  if (!multi && q.short) { const b2 = document.createElement('b'); b2.textContent = '짧은 버전'; shEl.appendChild(b2); shEl.appendChild(document.createTextNode(q.short)); }
   qbox.classList.toggle('past', !!isPicked);
   qbox.classList.add('show');
   resetRecorder();
-  document.getElementById('recHint').textContent = 'Day ' + (idx + 1) + ' 질문에 1분 동안 계속 말해보세요! 버튼을 눌러 시작!';
+  document.getElementById('recHint').textContent = multi
+    ? ('Day ' + (idx + 1) + ': 질문 ' + set.length + '개에 이어서 답하며 1분 동안 계속 말해보세요! 버튼을 눌러 시작!')
+    : ('Day ' + (idx + 1) + ' 질문에 1분 동안 계속 말해보세요! 버튼을 눌러 시작!');
   if (isPicked) qbox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -502,7 +523,7 @@ function renderQuestionArea() {
   const list = document.getElementById('pastlist');
   const headText = document.getElementById('pastheadText');
 
-  const lastNeeded = Math.min(todayNum, QOTD.length);    // 지금까지 나왔어야 할 마지막 질문 번호
+  const lastNeeded = todayNum;                           // 지금까지 나왔어야 할 마지막 질문(날) 번호
   const knowOwed = !!name && Array.isArray(doneDays);    // 서버 조회 성공 → owed 신뢰 가능
   let owed = [];
   if (knowOwed) {
@@ -528,9 +549,9 @@ function renderQuestionArea() {
     } else {
       setBigMessage('주말', '주말은 쉬는 날이에요 🌿', '위에 이름을 넣으면, 이번 주에 못 한 질문이 있는지 알려줄게요.');
     }
-  } else if (todayNum >= 1 && todayNum <= QOTD.length) {
+  } else if (todayNum >= 1) {
     showQuestion(todayNum - 1, false);                   // 평일: 오늘 질문
-    document.getElementById('qtag').textContent = '오늘의 질문 · Day ' + todayNum;
+    document.getElementById('qtag').textContent = '오늘의 질문 · Day ' + todayNum + (qSetFor(todayNum).length > 1 ? ' · ' + qSetFor(todayNum).length + '개를 이어서!' : '');
   } else {
     setBigMessage('', '오늘의 질문 기간이 아니에요.', '');
   }
@@ -598,13 +619,14 @@ function renderQuestionArea() {
 function renderQRows(list, dayNums) {
   list.innerHTML = '';
   dayNums.forEach((dnum) => {
-    const q = QOTD[dnum - 1];
+    const set = qSetFor(dnum);
+    const q = QOTD[set[0] - 1];
     if (!q) return;
     const row = document.createElement('div');
     row.className = 'pastrow';
     row.innerHTML = '<div class="d"><span>Day ' + dnum + '</span><span class="go">▶ 녹음</span></div><div class="qe"></div><div class="qk"></div>';
-    row.querySelector('.qe').textContent = q.en;
-    row.querySelector('.qk').textContent = q.kr;
+    row.querySelector('.qe').textContent = set.length > 1 ? set.map((i) => i + '. ' + QOTD[i - 1].en).join('\n') : q.en;
+    row.querySelector('.qk').textContent = set.length > 1 ? '질문 ' + set.length + '개를 이어서 1분 말하기' : q.kr;
     row.addEventListener('click', () => showQuestion(dnum - 1, true));
     list.appendChild(row);
   });
