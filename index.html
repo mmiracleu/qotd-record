@@ -127,6 +127,20 @@
   .goaltxt { font-size: 14px; font-weight: 600; color: var(--ink); margin-top: 8px; min-height: 20px; }
   .hint { font-size: 13px; color: #9aa7b2; margin-bottom: 6px; }
 
+  /* 내 녹음 피드백 카드 — 이름을 넣으면 가장 최근 말하기·책읽기 피드백을 보여준다 */
+  .fbcard { display: none; margin: -6px 0 18px; padding: 14px 16px; border-radius: 16px; background: #EBF4FB; border: 1px solid #D6EAFA; }
+  .fbcard.show { display: block; }
+  .fbtitle { font-size: 14px; font-weight: 700; color: var(--ink); }
+  .fbnote { font-size: 11px; color: #9aa7b2; margin: 2px 0 10px; }
+  .fbitem { background: #fff; border: 1px solid #D6EAFA; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+  .fbitem:last-child { margin-bottom: 0; }
+  .fbhead { font-size: 12px; font-weight: 700; color: var(--miracle-blue-deep); margin-bottom: 6px; }
+  .fbkid { font-size: 14px; line-height: 1.7; color: var(--ink); }
+  .fbpraise { margin-top: 8px; font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+  .fbpraise small { display: block; font-size: 12px; font-weight: 400; color: #7f8c9a; }
+  .fbrow { margin-top: 7px; font-size: 13px; line-height: 1.6; color: #4a5560; }
+  .fbrow b { display: block; font-size: 11px; font-weight: 700; color: var(--miracle-blue-deep); margin-bottom: 1px; }
+
   audio { width: 100%; margin: 16px 0; display: none; }
 
   .submit-btn {
@@ -164,6 +178,8 @@
 
   <label>이름 (한글은 3글자 · 성 붙여서 / 영어 이름은 그대로)</label>
   <input type="text" id="studentName" placeholder="예: 김별이" autocomplete="off" inputmode="text">
+
+  <div class="fbcard" id="fbcard"></div>
 
   <div class="qbox" id="qbox">
     <div class="tag" id="qtag"></div>
@@ -329,7 +345,10 @@ function clampName() {
 }
 function onNameInput() {
   clearTimeout(nameDebounce);
-  nameDebounce = setTimeout(refreshForName, 700);
+  nameDebounce = setTimeout(() => {
+    const v = clampNameStr(document.getElementById('studentName').value);
+    refreshAll(v.length >= 3);   // 이름이 3글자 이상일 때만 피드백 조회 (치는 중간엔 안 부름)
+  }, 700);
 }
 
 // 서버에 "이 아이가 답한 질문 번호" 물어보기 (JSONP — CORS 걱정 없음)
@@ -408,6 +427,83 @@ function saveDoneLocal(name, arr) {
 }
 function _mergeDays(a, b) {
   return Array.from(new Set([].concat(a || [], b || []).map(Number).filter((n) => n > 0))).sort((x, y) => x - y);
+}
+
+// ---- 내 녹음 피드백 카드 (말하기·책읽기 탭 어디서든 이름을 넣으면 보인다) ----
+// 서버(?name=…&fb=1)가 "가장 최근 말하기 1건 + 책읽기 1건"을 준다. AI 글이라 innerHTML 은 쓰지 않고 textContent 로만 그린다.
+// 못 받아도(서버 느림·차단) 카드만 안 보일 뿐 녹음·제출에는 아무 영향이 없다.
+let fbShownName = '';        // 지금 카드에 보여주고 있는(또는 "없음"을 확인한) 이름
+let fbInFlight = '';         // 지금 서버에 조회 중인 이름
+function fbJsonp(name, timeoutMs) {
+  return new Promise((resolve) => {
+    const cb = 'qfb_' + Date.now() + '_' + Math.floor(Math.random() * 1e4);
+    const s = document.createElement('script');
+    let done = false;
+    const fin = (d) => { if (done) return; done = true; clearTimeout(timer); try { delete window[cb]; } catch (_) { window[cb] = undefined; } if (s.parentNode) s.parentNode.removeChild(s); resolve(d); };
+    const timer = setTimeout(() => fin(null), timeoutMs);
+    window[cb] = (data) => fin(data && data.ok ? data : null);
+    s.onerror = () => fin(null);
+    s.src = WEBAPP_URL + '?name=' + encodeURIComponent(name) + '&fb=1&callback=' + cb + '&_=' + Date.now();
+    document.head.appendChild(s);
+  });
+}
+function fbEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function fbDateLabel(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
+  return m ? (+m[2]) + '월 ' + (+m[3]) + '일' : '';
+}
+function renderFeedback(card, list) {
+  card.textContent = '';
+  card.appendChild(fbEl('div', 'fbtitle', '💬 내 녹음 피드백'));
+  card.appendChild(fbEl('div', 'fbnote', 'AI가 녹음을 듣고 써준 피드백이에요. 이상한 부분은 선생님께 말해주세요.'));
+  list.forEach((it) => {
+    const isQ = it.type === 'QOTD';
+    const box = fbEl('div', 'fbitem');
+    box.appendChild(fbEl('div', 'fbhead', (isQ ? '🎤 오늘의 질문' : '📖 책읽기') + ' · ' + fbDateLabel(it.date) + '에 한 녹음'));
+    if (it.kid) {
+      box.appendChild(fbEl('div', 'fbkid', it.kid));
+    } else {
+      if (it.didWell) { const r = fbEl('div', 'fbrow'); r.appendChild(fbEl('b', null, '잘한 점')); r.appendChild(document.createTextNode(it.didWell)); box.appendChild(r); }
+      if (it.toFix) { const r = fbEl('div', 'fbrow'); r.appendChild(fbEl('b', null, '다음에는 이렇게')); r.appendChild(document.createTextNode(it.toFix)); box.appendChild(r); }
+    }
+    if (it.praise) {
+      const praiseTxt = String(it.praise).replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, '');   // AI 가 따옴표로 감싼 경우 벗김
+      const pm = /^(.*?)\s*\(([^()]*[가-힣][^()]*)\)\s*$/.exec(praiseTxt);
+      const p = fbEl('div', 'fbpraise', pm ? pm[1] : praiseTxt);
+      if (pm) p.appendChild(fbEl('small', null, pm[2]));
+      box.appendChild(p);
+    }
+    if (isQ && it.corrected) { const r = fbEl('div', 'fbrow'); r.appendChild(fbEl('b', null, '이렇게 말하면 더 좋아요')); r.appendChild(document.createTextNode(it.corrected)); box.appendChild(r); }
+    card.appendChild(box);
+  });
+  card.classList.add('show');
+}
+async function loadFeedback(name) {
+  const card = document.getElementById('fbcard');
+  if (!name) { fbShownName = ''; card.classList.remove('show'); card.textContent = ''; return; }
+  if (fbShownName && fbShownName !== name) { fbShownName = ''; card.classList.remove('show'); card.textContent = ''; }
+  if (fbShownName === name || fbInFlight === name) return;
+  fbInFlight = name;
+  let data = null;
+  try { data = await fbJsonp(name, 15000); if (!data) data = await fbJsonp(name, 25000); }
+  catch (_) { data = null; }
+  finally { fbInFlight = ''; }
+  if (document.getElementById('studentName').value.trim() !== name) return;   // 그새 이름을 바꿨으면 버린다
+  if (!data) return;                                                           // 못 받음 → 조용히 카드 없음 (다음에 이름 칠 때 다시 시도)
+  fbShownName = name;
+  if (!data.matched || !Array.isArray(data.feedback) || !data.feedback.length) { card.classList.remove('show'); card.textContent = ''; return; }
+  renderFeedback(card, data.feedback);
+}
+function refreshAll(withFeedback) {
+  refreshForName();
+  const name = document.getElementById('studentName').value.trim();
+  if (withFeedback || !name) loadFeedback(name);
+  else if (fbShownName && fbShownName !== name) loadFeedback('');   // 이름을 고치는 중이면 이전 아이의 카드는 바로 숨김
 }
 
 async function refreshForName() {
@@ -949,7 +1045,7 @@ async function submitRecording() {
 
 document.getElementById('studentName').addEventListener('input', onNameInput);
 document.getElementById('studentName').addEventListener('compositionend', onNameInput);
-document.getElementById('studentName').addEventListener('blur', () => { clampName(); refreshForName(); });
+document.getElementById('studentName').addEventListener('blur', () => { clampName(); refreshAll(true); });
 // 서버(Apps Script)를 미리 깨워둔다 — 이름 넣을 때 첫 조회가 덜 느리게.
 try {
   window.qwarm = function () {};
