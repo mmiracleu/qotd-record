@@ -333,8 +333,15 @@ const SET_STARTS = (() => {
   if (a[a.length - 1] !== lastStart) a.push(lastStart);
   return a;
 })();
+// Day 46(2026-11-04)부터 = 7개 묶음을 1칸씩 밀면서(1-7, 2-8, 3-9 … 24-30) 이어서 답한다(Sunny 요청). 다 돌면 처음부터 다시. 서버 _qSetFor 와 같아야 함.
+const SET7_FROM_DAY = 46, SET7_SIZE = 7;
 function qSetFor(day) {
   if (day <= QOTD.length) return [day];
+  if (day >= SET7_FROM_DAY) {
+    const st7 = 1 + ((day - SET7_FROM_DAY) % (QOTD.length - SET7_SIZE + 1));
+    const o7 = []; for (let i = 0; i < SET7_SIZE; i++) o7.push(st7 + i);
+    return o7;
+  }
   // Day 31(첫 묶음)과 Day 32(2026-10-15, Sunny 요청으로 다시 1~5번부터)는 둘 다 1~5번. Day 33부터 3~7, 5~9 … 로 2칸씩 민다.
   const st = SET_STARTS[day <= QOTD.length + 1 ? 0 : (day - QOTD.length - 2) % SET_STARTS.length];
   const out = []; for (let i = 0; i < SET_SIZE; i++) out.push(st + i);
