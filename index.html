@@ -337,6 +337,7 @@ const SET_STARTS = (() => {
 const SET7_FROM_DAY = 46, SET7_SIZE = 7;
 function qSetFor(day) {
   if (day <= QOTD.length) return [day];
+  if (day === 47) return [3, 4, 5, 6, 7, 8, 9, 10];   // 2026-11-05 Sunny 요청: 오늘만 3~10번(8개). Day 48부터는 원래 7개 규칙 그대로. 서버 _qSetFor 와 같아야 함.
   if (day >= SET7_FROM_DAY) {
     const st7 = 1 + ((day - SET7_FROM_DAY) % (QOTD.length - SET7_SIZE + 1));
     const o7 = []; for (let i = 0; i < SET7_SIZE; i++) o7.push(st7 + i);
