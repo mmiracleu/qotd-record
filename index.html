@@ -338,6 +338,12 @@ const SET7_FROM_DAY = 46, SET7_SIZE = 7;
 function qSetFor(day) {
   if (day <= QOTD.length) return [day];
   if (day === 47) return [3, 4, 5, 6, 7, 8, 9, 10];   // 2026-11-05 Sunny 요청: 오늘만 3~10번(8개). Day 48부터는 원래 7개 규칙 그대로. 서버 _qSetFor 와 같아야 함.
+  // Day 48(2026-11-06)부터 = 8개 묶음을 1칸씩 밀면서(4-11, 5-12 … 23-30, 그다음 1-8, 2-9 …) 이어서 답한다(Sunny 요청). 서버 _qSetFor 와 같아야 함.
+  if (day >= 48) {
+    const st8 = (3 + (day - 48)) % (QOTD.length - 8 + 1) + 1;
+    const o8 = []; for (let i = 0; i < 8; i++) o8.push(st8 + i);
+    return o8;
+  }
   if (day >= SET7_FROM_DAY) {
     const st7 = 1 + ((day - SET7_FROM_DAY) % (QOTD.length - SET7_SIZE + 1));
     const o7 = []; for (let i = 0; i < SET7_SIZE; i++) o7.push(st7 + i);
